@@ -1,11 +1,11 @@
 // Бота — MVP: conversational Kazakh for Russian speakers.
 import { html, render, useState, useEffect, useRef, useMemo, useErrorBoundary } from 'https://cdn.jsdelivr.net/npm/htm@3.1.1/preact/standalone.module.js';
-import { KINDS, CITIES, JOBS, HOBBIES, CHOICES, PEOPLE, PHRASES, TOPICS, LEVELS, RULES, RESCUE, PHRASEBOOK, BABY, BABY_GROUPS, BABY_AGES, BABY_GOAL, FACTS } from './content.js';
-import * as fsrs from './fsrs.js';
-import * as voice from './voice.js';
-import * as mic from './mic.js';
-import { KZ_LETTERS, checkTyped, normType, plain } from './typing.js';
-import { Icon, PlayGlyph, SpeakerGlyph, Sun, Logo, Bota, Avatar, Yurt, Photo, Shanyrak, Wave } from './art.js';
+import { KINDS, CITIES, JOBS, HOBBIES, CHOICES, PEOPLE, PHRASES, TOPICS, LEVELS, RULES, RESCUE, PHRASEBOOK, BABY, BABY_GROUPS, BABY_AGES, BABY_GOAL, FACTS, RACE_APART } from './content.js?v=1efdd97';
+import * as fsrs from './fsrs.js?v=1efdd97';
+import * as voice from './voice.js?v=1efdd97';
+import * as mic from './mic.js?v=1efdd97';
+import { KZ_LETTERS, checkTyped, normType, plain } from './typing.js?v=1efdd97';
+import { Icon, PlayGlyph, SpeakerGlyph, Sun, Logo, Bota, Avatar, Yurt, Photo, Shanyrak, Wave } from './art.js?v=1efdd97';
 
 /* ---------- storage: progress lives in this browser only ---------- */
 
@@ -548,10 +548,13 @@ function TopicScreen({ st, ti, go }) {
   const learn = [...new Set(t.convs.flatMap((c) => c.teaches || []))].map((id) => phrase(id)).filter(Boolean).slice(0, 6);
   // A topic that is not open yet sends the learner to the lesson that opens it, not into a locked one.
   const before = !target && !rows.every((r) => r.done) ? nextUp(st, t.level) : null;
-  const cta = target ? `Начать: ${KINDS[target.c.kind].label.toLowerCase()}`
-    : before ? `Сначала: ${before.t.title.toLowerCase()}` : 'Пройти тему ещё раз';
-  const start = target || before || { ti, ci: 0 };
   const race = raceOpen(st, t);
+  // A topic passed in full offers its race; its lessons stay in the list to go through again.
+  const passed = !target && !before;
+  const cta = target ? `Начать: ${KINDS[target.c.kind].label.toLowerCase()}`
+    : before ? `Сначала: ${before.t.title.toLowerCase()}` : race ? 'Бәйге — скачки по теме' : 'Пройти тему ещё раз';
+  const start = target || before || { ti, ci: 0 };
+  const onCta = () => (passed && race ? go('race', { ti }) : go('conv', { ti: start.ti ?? ti, ci: start.ci }));
   return html`<main class="screen">
     <${TopBar} title=${t.title} sub=${t.kk} subLang="kk" onBack=${() => go('home')} backLabel="Вернуться в «Мой круг»" />
     <div class="scroll pad topic">
@@ -565,11 +568,11 @@ function TopicScreen({ st, ti, go }) {
             : r.open ? html`<span class="state now">сейчас</span>`
             : html`<span class="state" aria-label="закрыт"><${Icon} name="lock" size=${16} /></span>`}
         </button></li>`)}</ol>
-      ${t.words ? html`<button type="button" class=${'conv-row race-row' + (race ? '' : ' locked')} disabled=${!race} onClick=${() => go('race', { ti })}>
+      ${race && !passed ? html`<button type="button" class="conv-row race-row" onClick=${() => go('race', { ti })}>
         <span class="conv-ic"><${Icon} name="flag" size=${20} /></span>
-        <span class="grow"><b><span lang="kk">Бәйге</span> по теме</b><span class="muted sm">${!race ? `откроется после урока «${KINDS[t.convs[2].kind].label}»`
-          : st.race.best[t.id] ? `${t.words.length} пар на время · рекорд ${raceTime(st.race.best[t.id])}` : `скачки на словах: ${t.words.length} пар на время`}</span></span>
-        ${race ? html`<${Icon} name="next" size=${18} stroke=${2.4} />` : html`<span class="state" aria-label="закрыт"><${Icon} name="lock" size=${16} /></span>`}
+        <span class="grow"><b><span lang="kk">Бәйге</span> по теме</b><span class="muted sm">${st.race.best[t.id]
+          ? `${t.words.length} пар на время · рекорд ${raceTime(st.race.best[t.id])}` : `скачки: ${t.words.length} пар слов на время`}</span></span>
+        <${Icon} name="next" size=${18} stroke=${2.4} />
       </button>` : null}
       <section class="learn">
         <span class="eyebrow">ФРАЗЫ ЭТОЙ ТЕМЫ</span>
@@ -578,7 +581,7 @@ function TopicScreen({ st, ti, go }) {
           <${SpeakBtn} text=${fill(ph.kk, v)} /></div>`)}
       </section>
     </div>
-    <div class="bottom pad"><button type="button" class="btn btn-primary btn-block" onClick=${() => go('conv', { ti: start.ti ?? ti, ci: start.ci })}>${cta}</button></div>
+    <div class="bottom pad"><button type="button" class="btn btn-primary btn-block" onClick=${onCta}>${cta}</button></div>
   </main>`;
 }
 
@@ -615,13 +618,21 @@ function Msg({ m, tr, hint, topic, onRule, onTr }) {
   if (m.k === 'me') {
     return html`<div class="b b-me"><span class="b-kk" lang="kk">${m.kk}</span>${m.ru ? html`<span class="b-tr">${m.ru}</span>` : null}</div>`;
   }
-  // The learner's voice message: ▶ plays the recording. Said without a microphone, ▶ plays how the
-  // phrase should sound, and without a Kazakh voice a tick marks it as said.
+  // The learner's voice message: ▶ plays the recording (and calls off one under way). Said without a
+  // microphone, the line is the phrase marked «сказал(а) вслух» — no drawn recording that never was.
   if (m.k === 'voice') {
-    const play = m.url ? () => { voice.stop(); mic.play(m.url); } : voice.available() ? () => voice.speak(m.kk) : null;
-    return html`<div class="b b-me b-voice"><span class="b-voice-row">${play
-      ? html`<button type="button" class="vplay" aria-label=${m.url ? 'Послушать свою запись' : 'Послушать, как звучит фраза'} onClick=${play}><${PlayGlyph} size=${12} /></button>`
-      : html`<span class="vplay" aria-hidden="true"><${Icon} name="check" size=${13} stroke=${3} /></span>`}<${Wave} levels=${m.levels} />
+    if (!m.url) {
+      return html`<div class="b b-me b-said"><span class="b-kk" lang="kk">${m.kk}</span>
+        <span class="b-said-row"><${Icon} name="mic" size=${13} stroke=${2.4} /> сказал(а) вслух${voice.available()
+          ? html`<span aria-hidden="true"> · </span><button type="button" class="b-sample" onClick=${() => voice.speak(m.kk)}>образец</button>` : null}</span></div>`;
+    }
+    const play = () => {
+      if (liveRecording) liveRecording.cancel();
+      voice.stop();
+      mic.play(m.url);
+    };
+    return html`<div class="b b-me b-voice"><span class="b-voice-row">
+      <button type="button" class="vplay" aria-label="Послушать свою запись" onClick=${play}><${PlayGlyph} size=${12} /></button><${Wave} levels=${m.levels} />
       ${m.ms ? html`<span class="b-dur">0:${pad2(Math.max(1, Math.round(m.ms / 1000)))}</span>` : null}</span>
       <span class="b-kk sm" lang="kk">${m.kk}</span></div>`;
   }
@@ -753,6 +764,12 @@ function Syllables({ text }) {
 // Why «Скажи вслух» cannot record now, or '' when it can: the setting is off, the page may not use
 // the microphone (the claude.ai artifact frame), the browser cannot record, or it was refused.
 let micTrouble = '';
+// A note about the microphone is shown once a visit, not under every phrase.
+const micNoted = new Set();
+// The recording under way: ▶ on an older voice message calls it off before playing.
+let liveRecording = null;
+// The same app as a plain website, where the microphone works.
+const SITE = 'https://madikabdulovrec-cpu.github.io/bota/';
 function micState(st) {
   if (!st.settings.mic) return 'off';
   if (!mic.supported()) return 'unsupported';
@@ -761,41 +778,69 @@ function micState(st) {
 }
 const MIC_NOTE = {
   paused: 'Запись выключена до конца урока.',
-  blocked: 'В этой версии приложения микрофон недоступен: скажи фразу вслух сам(а).',
-  unsupported: 'Этот браузер не умеет записывать голос: скажи фразу вслух сам(а).',
+  blocked: 'Здесь микрофон недоступен: запись работает в версии приложения на сайте.',
+  unsupported: 'Этот браузер не умеет записывать голос.',
   denied: 'Доступ к микрофону не разрешён — его можно включить в настройках браузера.',
-  nomic: 'Микрофон не найден: скажи фразу вслух сам(а).',
+  nomic: 'Микрофон не найден.',
 };
 
 // Say a phrase aloud. With a microphone the phrase is recorded and goes to the chat as a voice
 // message: the app hears whether the whole phrase was said, not how it sounded — that needs
 // speech recognition on a server. Without one, the learner says it and taps the button.
-function SayPanel({ step, v, tr, st, paused, onPause, onDone, onHint }) {
+function SayPanel({ step, v, tr, st, paused, onPause, onResume, onDone, onHint }) {
   const kk = val(step.say, v);
   const syl = val(step.syl, v);
-  const [recording, setRecording] = useState(false);
+  // idle → opening (the browser turns the microphone on) → rec → idle
+  const [stage, setStage] = useState('idle');
   const [meter, setMeter] = useState([]);
+  // What went wrong with the last try; stays in the panel, where the learner looks.
+  const [status, setStatus] = useState('');
+  const [failed, setFailed] = useState(false);
   const [, redraw] = useState(0);
   const live = useRef(null);
+  const alive = useRef(true);
   const asked = useRef(false);
   const trouble = paused ? 'paused' : micState(st);
+  // Noted at once, while drawing: a quick tap may close the panel before any effect of it runs.
+  const [noteDue] = useState(() => {
+    const due = !micNoted.has(trouble);
+    if (trouble) micNoted.add(trouble);
+    return due;
+  });
   const syllables = (kk.toLowerCase().match(/[аәеёиіоөуұүыэюя]/g) || []).length;
-  useEffect(() => () => { if (live.current) live.current.stop(); }, []);
+  useEffect(() => () => {
+    alive.current = false;
+    if (live.current) live.current.cancel();
+  }, []);
 
   const start = () => {
     if (live.current) return;
     voice.stop();
     mic.stopPlaying();
-    const r = mic.record({ maxMs: Math.min(15000, 3000 + syllables * 450), onLevel: (l) => setMeter((m) => [...m.slice(-23), l]) });
+    setStatus('');
+    const r = mic.record({
+      maxMs: Math.min(15000, 3000 + syllables * 450),
+      onStart: () => { if (alive.current) setStage('rec'); },
+      onLevel: (l) => { if (alive.current) setMeter((m) => [...m.slice(-23), l]); },
+    });
     live.current = r;
+    liveRecording = r;
     setMeter([]);
-    setRecording(true);
-    r.done.then((res) => {
+    setStage('opening');
+    const settle = () => {
       live.current = null;
-      setRecording(false);
+      if (liveRecording === r) liveRecording = null;
+      if (alive.current) setStage('idle');
+    };
+    r.done.then((res) => {
+      settle();
       const drop = () => { if (res.url) URL.revokeObjectURL(res.url); };
+      if (res.cancelled) return;
+      // The lesson was left meanwhile: nobody will play this recording.
+      if (!alive.current) { drop(); return; }
       if (!res.heard) {
         drop();
+        setStatus('Не слышно. Поднеси телефон ближе и скажи фразу ещё раз.');
         onHint('Тебя не слышно. Поднеси телефон ближе и скажи фразу ещё раз.');
         return;
       }
@@ -803,36 +848,49 @@ function SayPanel({ step, v, tr, st, paused, onPause, onDone, onHint }) {
       if (!asked.current && syllables >= 6 && res.voicedMs < syllables * 55) {
         asked.current = true;
         drop();
+        setStatus('Похоже, это не вся фраза. Скажи её целиком.');
         onHint('Похоже, это не вся фраза. Скажи её целиком.');
         return;
       }
       onDone(res);
     }, (e) => {
-      live.current = null;
-      setRecording(false);
+      settle();
+      if (!alive.current) return;
       let code = e && e.code;
       // In a frame (the claude.ai artifact) Safari refuses at once: the frame, not the learner, says no.
       if (code === 'denied' && window.self !== window.top) code = 'blocked';
       if (MIC_NOTE[code]) {
         micTrouble = code;
+        micNoted.add(code);
+        setFailed(true);
         redraw((n) => n + 1);
-      } else onHint('Не получилось включить микрофон. Попробуй ещё раз.');
+      } else setStatus('Не получилось включить микрофон. Попробуй ещё раз.');
     });
   };
 
+  const links = (items) => html`<span class="done-links">${items.map(([label, on], i) => html`${i ? html`<span aria-hidden="true">·</span>` : null}<button type="button" class="link-btn" onClick=${on}>${label}</button>`)}</span>`;
   let action;
   if (trouble) {
+    const note = MIC_NOTE[trouble] && (trouble === 'paused' || noteDue || failed) ? MIC_NOTE[trouble] : '';
+    const again = trouble === 'paused' ? [['Включить запись', onResume]]
+      : trouble === 'denied' || trouble === 'nomic' ? [['Попробовать снова', () => { micTrouble = ''; setFailed(false); redraw((n) => n + 1); }]] : [];
     action = html`<button type="button" class="btn btn-primary btn-block" onClick=${() => onDone(null)}><${Icon} name="mic" size=${20} /> Я сказал(а) вслух</button>
-      ${MIC_NOTE[trouble] ? html`<span class="muted sm center">${MIC_NOTE[trouble]}</span>` : null}`;
-  } else if (recording) {
-    action = html`<div class="rec-row" role="status"><span class="rec-dot" aria-hidden="true"></span><span class="sm">Слушаю…</span>
+      ${note ? html`<span class="muted sm center" role="status">${note}${trouble === 'blocked' ? html` <a href=${SITE} target="_blank" rel="noopener">Открыть сайт</a>` : null}</span>` : null}
+      ${again.length ? links(again) : null}`;
+  } else if (stage !== 'idle') {
+    action = html`<div class="rec-row" role="status"><span class="rec-dot" aria-hidden="true"></span><span class="sm">${stage === 'opening' ? 'Включаю микрофон…' : 'Слушаю…'}</span>
         <span class="rec-meter" aria-hidden="true">${Array.from({ length: 24 }, (_, i) => html`<i style=${`height:${Math.round(4 + (meter[meter.length - 24 + i] || 0) * 22)}px`}></i>`)}</span></div>
-      <button type="button" class="btn btn-primary btn-block" onClick=${() => live.current && live.current.stop()}><span class="stop-glyph" aria-hidden="true"></span> Готово</button>`;
+      ${stage === 'opening'
+        ? html`<button type="button" class="btn btn-ghost btn-block" onClick=${() => live.current && live.current.cancel()}>Отмена</button>`
+        : html`<button type="button" class="btn btn-primary btn-block" onClick=${() => live.current && live.current.stop()}><span class="stop-glyph" aria-hidden="true"></span> Готово</button>`}`;
   } else {
     action = html`<button type="button" class="btn btn-primary btn-block" onClick=${start}><${Icon} name="mic" size=${20} /> Записать</button>
-      <span class="done-links"><button type="button" class="link-btn" onClick=${onPause}>Сейчас не могу говорить</button></span>`;
+      ${status ? html`<span class="say-status" role="status">${status}</span>` : null}
+      ${links([['Сейчас не могу говорить', onPause]])}`;
   }
 
+  // While the microphone listens, the sample stays silent: it would be recorded as the learner's voice.
+  const busy = stage !== 'idle';
   return html`<div class="panel-in">
     <div class="say-head"><span class="eyebrow">СКАЖИ ВСЛУХ</span><span class="muted sm">${step.stress ? 'жирным — ударный слог' : 'можно по слогам'}</span></div>
     <div class="say-card">
@@ -841,8 +899,8 @@ function SayPanel({ step, v, tr, st, paused, onPause, onDone, onHint }) {
       ${tr ? html`<span class="say-ru">«${val(step.ru, v)}»</span>` : null}
       ${voice.available()
         ? html`<div class="say-ctl">
-            <button type="button" class="ctl" onClick=${() => voice.speak(kk)}><${SpeakerGlyph} size=${16} /> Послушать</button>
-            <button type="button" class="ctl" onClick=${() => voice.slow(kk)}>Медленно</button></div>`
+            <button type="button" class="ctl" disabled=${busy} onClick=${() => voice.speak(kk)}><${SpeakerGlyph} size=${16} /> Послушать</button>
+            <button type="button" class="ctl" disabled=${busy} onClick=${() => voice.slow(kk)}>Медленно</button></div>`
         : html`<span class="muted sm">В этом браузере нет казахского голоса — прочитай по слогам.</span>`}
     </div>
     ${action}
@@ -967,6 +1025,9 @@ function TypePanel({ step, v, auto, onDone, onHint }) {
 // One main action — the next lesson; going home and repeating stay in one line of links.
 function DonePanel({ st, conv, ti, ci, result, v, go }) {
   const streak = streakOf(st.days);
+  // The third lesson of a topic, done for the first time, opens the race of its words.
+  const topic = PLAYABLE[ti];
+  const opened = result.first && ci === 2 && topic.words && topic.words.length;
   const nx = nextUp(st, PLAYABLE[ti].level) || nextUp(st);
   const nextText = nx ? (nx.ti === ti ? `Дальше: ${KINDS[nx.c.kind].label.toLowerCase()}` : `Новая тема: ${nx.t.title.toLowerCase()}`) : null;
   const note = result.added ? `${result.added} ${plural(result.added, PHR_W)} — в памяти, повторим завтра`
@@ -981,6 +1042,8 @@ function DonePanel({ st, conv, ti, ci, result, v, go }) {
       ${conv.can.map(([ru, kk]) => html`<span class="cando-row"><span class="tick"><${Icon} name="check" size=${12} stroke=${3.4} /></span>
         <span>${ru} — <b class="kk" lang="kk">${fill(kk, v)}</b></span></span>`)}</div>
     <span class="mem-note"><${Icon} name=${conv.kind === 'pron' ? 'sound' : conv.kind === 'write' ? 'edit' : 'ornament'} size=${20} />${note}</span>
+    ${opened ? html`<button type="button" class="m-rule race-open" onClick=${() => go('race', { ti })}>
+      <${Icon} name="flag" size=${18} /> Открылась <span lang="kk">бәйге</span> — скачки на ${topic.words.length} словах темы</button>` : null}
     <button type="button" class="btn btn-primary btn-block" onClick=${() => (nx ? go('conv', { ti: nx.ti, ci: nx.ci }) : go('home'))}>${nx ? nextText : 'Вернуться в «Мой круг»'}</button>
     <span class="done-links">
       ${nx ? html`<button type="button" class="link-btn" onClick=${() => go('home')}>В «Мой круг»</button><span aria-hidden="true">·</span>` : null}
@@ -1032,7 +1095,7 @@ function ConvScreen({ st, update, ti, ci, go }) {
       d.days[dayKey()] = true;
       added.forEach((id) => { if (!d.mem[id]) d.mem[id] = fsrs.review(null, 2, now); });
     });
-    setResult({ added: added.length, typed: typed.current.n, clean: typed.current.clean });
+    setResult({ added: added.length, typed: typed.current.n, clean: typed.current.clean, first: !cur.done[conv.id] });
   }
 
   // Lines of the other person come one by one; while a rule is open the conversation waits.
@@ -1133,7 +1196,8 @@ function ConvScreen({ st, update, ti, ci, go }) {
       panel = html`<${BuildPanel} key=${pos} step=${step} v=${v} tr=${task} onHint=${hint}
         onDone=${() => advance([{ k: 'me', kk: val(step.text, v), ru: val(step.ru, v) }], { rule: step.rule, word: step.word })} />`;
     } else if (step.say) {
-      panel = html`<${SayPanel} key=${pos} step=${step} v=${v} tr=${task} st=${st} paused=${micPaused} onPause=${() => setMicPaused(true)} onHint=${hint}
+      panel = html`<${SayPanel} key=${pos} step=${step} v=${v} tr=${task} st=${st} paused=${micPaused} onHint=${hint}
+        onPause=${() => setMicPaused(true)} onResume=${() => setMicPaused(false)}
         onDone=${(res) => {
           if (res && res.url) recordings.current.push(res.url);
           advance([{ k: 'voice', kk: val(step.say, v), url: res && res.url, ms: res && res.ms, levels: res && res.levels }]);
@@ -1372,17 +1436,23 @@ function Review({ st, update, go }) {
 /* ---------- «Бәйге»: a race of word pairs ---------- */
 
 // The words of a topic open with its third lesson, when all of them have been met. A race is ten
-// pairs on two boards of five; a wrong pair adds two seconds. The first race of a set is run
-// against Bota at five seconds a pair, every later one against the learner's own record.
+// pairs on two boards of five; a wrong pair adds three seconds. The first race of a set is run
+// against Bota at four seconds a pair, every later one against the learner's own record. Fine and
+// pace are set so that tapping at random (about ten wrong pairs a race) loses to Bota.
 const RACE_BOARD = 5;
 const RACE_PAIRS = 10;
-const RACE_FINE = 2000;
-const BOTA_PACE = 5000;
+const RACE_FINE = 3000;
+const BOTA_PACE = 4000;
+const FINE_S = RACE_FINE / 1000;
 const PAIR_W = ['пару', 'пары', 'пар'];
 const MISS_W = ['ошибка', 'ошибки', 'ошибок'];
+// Times are shown and compared in tenths of a second.
+const tenths = (ms) => Math.round(ms / 100);
 
 const raceOpen = (st, t) => !!(t.words && t.words.length && st.done[t.convs[2].id]);
 const raceTopics = (st) => PLAYABLE.filter((t) => raceOpen(st, t));
+// Words close in meaning or form, from different topics, never meet in one mixed race.
+const APART = new Map(RACE_APART.flatMap((group, i) => group.map((kk) => [kk, i])));
 
 // 28,4 с; from a minute on, 1:05,2.
 function raceTime(ms) {
@@ -1394,7 +1464,7 @@ function raceTime(ms) {
 }
 
 // Words mixed up before come first, then a few of the newest open topic; no two pairs of one race
-// mean the same.
+// mean the same, and words kept apart (RACE_APART) do not meet in a mixed race.
 function raceSet(st, topic) {
   const topics = topic ? [topic] : raceTopics(st);
   const wordsOf = (t) => (t.words || []).map(([kk, ru]) => ({ kk, ru }));
@@ -1405,10 +1475,13 @@ function raceSet(st, topic) {
   const newest = topic ? [] : shuffle(lists[lists.length - 1] || []).slice(0, 3);
   const out = [];
   const meanings = new Set();
+  const groups = new Set();
   for (const w of [...again, ...newest, ...shuffle(pool)]) {
     const m = w.ru.toLowerCase();
-    if (out.includes(w) || meanings.has(m)) continue;
+    const group = topic ? undefined : APART.get(w.kk);
+    if (out.includes(w) || meanings.has(m) || groups.has(group)) continue;
     meanings.add(m);
+    if (group !== undefined) groups.add(group);
     out.push(w);
     if (out.length === RACE_PAIRS) break;
   }
@@ -1428,12 +1501,14 @@ function raceBoards(n) {
   return out;
 }
 
+// The mixed race on the home screen appears with the second open topic: with one, it would repeat
+// the race of that topic, which its own screen offers.
 function RaceRow({ st, go }) {
-  if (!raceTopics(st).length) return null;
+  if (raceTopics(st).length < 2) return null;
   const best = st.race.best.mix;
   return html`<button type="button" class="mem-row" onClick=${() => go('race')}>
     <span class="mem-ic race-ic"><${Icon} name="flag" size=${22} /></span>
-    <span class="grow"><span><span lang="kk">Бәйге</span> — скачки на словах</span></span>
+    <span class="grow"><span><span lang="kk">Бәйге</span> (скачки) — пары слов на время</span></span>
     ${best ? html`<span class="muted sm">рекорд ${raceTime(best)}</span>` : null}
     <${Icon} name="next" size=${18} stroke=${2.4} />
   </button>`;
@@ -1485,27 +1560,43 @@ function RaceScreen({ st, update, go, ti, quick, setup, duel: duelIn }) {
   };
   const shown = result ? result.ms : elapsed() + fines.current * RACE_FINE;
 
-  // 3 · үш, 2 · екі, 1 · бір — then the board opens and the clock starts.
+  // 3 · үш, 2 · екі, 1 · бір — then the board opens and the clock starts. A countdown left in a
+  // hidden page waits and starts over from three when the page is back.
+  const [wake, setWake] = useState(0);
   useEffect(() => {
     if (phase !== 'count') return undefined;
+    const onVis = () => {
+      if (document.hidden) return;
+      setCount(3);
+      setWake((w) => w + 1);
+    };
+    document.addEventListener('visibilitychange', onVis);
     const id = setTimeout(() => {
+      if (document.hidden) return;
       if (count > 1) { setCount(count - 1); return; }
-      clock.current = { t0: Date.now(), off: 0, hid: 0, end: 0 };
+      clock.current = { t0: Date.now(), off: 0, hid: 0, end: 0, paused: false };
       setPhase('run');
     }, 650);
-    return () => clearTimeout(id);
-  }, [phase, count]);
+    return () => { clearTimeout(id); document.removeEventListener('visibilitychange', onVis); };
+  }, [phase, count, wake]);
 
-  // The clock ticks while the race runs and stands while the page is hidden.
+  // The clock ticks while the race runs and stands while the page is hidden. A race that stood
+  // still with the words on screen is marked: it sets no record.
   useEffect(() => {
     if (phase !== 'run') return undefined;
     const id = setInterval(() => setTick((x) => x + 1), 100);
     const onVis = () => {
       const c = clock.current;
       if (c.end) return;
-      if (document.hidden) { if (!c.hid) c.hid = Date.now(); }
-      else if (c.hid) { c.off += Date.now() - c.hid; c.hid = 0; }
+      if (document.hidden) {
+        if (!c.hid) c.hid = Date.now();
+        c.paused = true;
+      } else if (c.hid) {
+        c.off += Date.now() - c.hid;
+        c.hid = 0;
+      }
     };
+    onVis();
     document.addEventListener('visibilitychange', onVis);
     return () => { clearInterval(id); document.removeEventListener('visibilitychange', onVis); };
   }, [phase]);
@@ -1520,6 +1611,16 @@ function RaceScreen({ st, update, go, ti, quick, setup, duel: duelIn }) {
     const el = box && (box.matches('button') ? box : box.querySelector('button:not([disabled])'));
     if (el) el.focus({ preventScroll: true });
   }, [phase, board]);
+  // A pair found disables its chips; keyboard focus goes on to the next free word, not to the page
+  // top (Firefox drops it to the page) or onto a chip that is fading out (Chrome keeps it there).
+  useEffect(() => {
+    const box = boardBox.current;
+    const active = document.activeElement;
+    const lost = !active || active === document.body || (active.disabled && box && box.contains(active));
+    if (phase !== 'run' || !box || !lost) return;
+    const el = box.querySelector('button:not([disabled])');
+    if (el) el.focus({ preventScroll: true });
+  }, [done.length]);
 
   const startDuel = () => {
     if (!rivalName) return;
@@ -1548,10 +1649,12 @@ function RaceScreen({ st, update, go, ti, quick, setup, duel: duelIn }) {
   };
 
   const finish = () => {
-    const ms = elapsed() + fines.current * RACE_FINE;
+    // Shown and compared in tenths: 10,0 against 10,0 is a tie, whatever the milliseconds.
+    const ms = tenths(elapsed()) * 100 + fines.current * RACE_FINE;
+    const paused = !!clock.current.paused;
     if (duel) {
       const runs = [...duel.runs];
-      runs[playing] = { ms, fines: fines.current };
+      runs[playing] = { ms, fines: fines.current, paused };
       if (duel.turn === 0) {
         setDuel({ ...duel, runs, turn: 1 });
         setSaid(`${duel.names[playing]}: ${raceTime(ms)}. Ход ${duel.names[1 - playing]}.`);
@@ -1559,8 +1662,7 @@ function RaceScreen({ st, update, go, ti, quick, setup, duel: duelIn }) {
         return;
       }
       const [a, b] = runs;
-      const tie = Math.round(a.ms / 100) === Math.round(b.ms / 100);
-      setSaid(tie ? 'Ничья.' : `${duel.names[a.ms < b.ms ? 0 : 1]} быстрее на ${raceTime(Math.abs(a.ms - b.ms))}.`);
+      setSaid(a.ms === b.ms ? 'Ничья.' : `${duel.names[a.ms < b.ms ? 0 : 1]} быстрее на ${raceTime(Math.abs(a.ms - b.ms))}.`);
       update((d) => { d.days[dayKey()] = true; });
       setDuel({ ...duel, runs });
       setPhase('end');
@@ -1568,7 +1670,7 @@ function RaceScreen({ st, update, go, ti, quick, setup, duel: duelIn }) {
     }
     const miss = missed.current;
     update((d) => {
-      if (!d.race.best[key] || ms < d.race.best[key]) d.race.best[key] = ms;
+      if (!paused && (!d.race.best[key] || ms < d.race.best[key])) d.race.best[key] = ms;
       d.race.runs = (d.race.runs || 0) + 1;
       // A word mixed up comes back in the next races until it is matched right away.
       set.forEach((w, i) => {
@@ -1578,7 +1680,7 @@ function RaceScreen({ st, update, go, ti, quick, setup, duel: duelIn }) {
       });
       d.days[dayKey()] = true;
     });
-    setResult({ ms, prev: record, fines: fines.current, missed: [...miss] });
+    setResult({ ms, prev: record, fines: fines.current, missed: [...miss], paused });
     setPhase('end');
   };
 
@@ -1606,7 +1708,7 @@ function RaceScreen({ st, update, go, ti, quick, setup, duel: duelIn }) {
     missed.current.add(r);
     setBad({ k, r });
     setFineMark((n) => n + 1);
-    setSaid(`Не пара: «${set[k].kk}» — это «${set[k].ru}». Плюс 2 секунды.`);
+    setSaid(`Не пара: «${set[k].kk}» — это «${set[k].ru}». Плюс ${FINE_S} секунды.`);
     setTimeout(() => setBad((b) => (b && b.k === k && b.r === r ? null : b)), 450);
   };
 
@@ -1629,7 +1731,7 @@ function RaceScreen({ st, update, go, ti, quick, setup, duel: duelIn }) {
   const backLabel = topic ? 'Назад к теме' : 'В «Мой круг»';
   const head = html`<${TopBar} title="Бәйге" sub=${sub} onBack=${back} backLabel=${topic ? 'Назад к теме' : 'Вернуться в «Мой круг»'}
     right=${phase === 'run' ? html`<span class="race-clock">${raceTime(shown)}${fineMark
-      ? html`<span class="race-fine" key=${fineMark} aria-hidden="true">+2 с</span>` : null}</span>` : null} />`;
+      ? html`<span class="race-fine" key=${fineMark} aria-hidden="true">+${FINE_S} с</span>` : null}</span>` : null} />`;
 
   if (!total) {
     return html`<main class="screen">${head}
@@ -1679,9 +1781,10 @@ function RaceScreen({ st, update, go, ti, quick, setup, duel: duelIn }) {
       : (isK ? selK : selR) === i ? ' sel'
       : bad && (isK ? bad.k : bad.r) === i ? ' bad' : '';
     return html`<button type="button" key=${`${side}${i}`} class=${'pair-chip' + (isK ? ' kk' : '') + sizeOf(isK ? set[i].kk : set[i].ru) + state} lang=${isK ? 'kk' : null}
-      aria-pressed=${(isK ? selK : selR) === i} disabled=${matched} onClick=${() => tap(side, i)}>${isK ? set[i].kk : set[i].ru}</button>`;
+      aria-pressed=${(isK ? selK : selR) === i} aria-hidden=${matched && flash !== i ? 'true' : null} disabled=${matched}
+      onClick=${() => tap(side, i)}>${isK ? set[i].kk : set[i].ru}</button>`;
   };
-  const finesOf = (n) => (n ? `${n} ${plural(n, MISS_W)}, +${n * RACE_FINE / 1000} с` : 'без ошибок');
+  const finesOf = (n, paused) => [n ? `${n} ${plural(n, MISS_W)}, +${n * FINE_S} с` : 'без ошибок', paused ? 'с паузой' : ''].filter(Boolean).join(' · ');
 
   let body;
   if (phase === 'setup') {
@@ -1696,7 +1799,7 @@ function RaceScreen({ st, update, go, ti, quick, setup, duel: duelIn }) {
     body = html`<div class="race-intro">
       ${record ? html`<span class="orn-big"><${Icon} name="flag" size=${48} stroke=${1.8} /></span>` : html`<${Bota} size=${64} />`}
       <b class="h2">${record ? `Побей рекорд — ${raceTime(record)}` : 'Обгони Боту'}</b>
-      <p class="muted">Подбери ${total} ${plural(total, PAIR_W)}: казахское слово и его перевод. Ошибка — плюс 2 секунды.</p>
+      <p class="muted">Подбери ${total} ${plural(total, PAIR_W)}: казахское слово и его перевод. Ошибка — плюс ${FINE_S} секунды.</p>
     </div>`;
   } else if (phase === 'count') {
     body = html`<div class="race-count" role="status">${duel ? html`<span class="race-turn">Ход: ${duel.names[playing]}</span>` : null}
@@ -1712,25 +1815,28 @@ function RaceScreen({ st, update, go, ti, quick, setup, duel: duelIn }) {
     body = html`<div class="race-intro">
       <span class="race-turn">${duel.names[duel.first]}</span>
       <b class="race-time">${raceTime(r.ms)}</b>
-      <span class="sm">${finesOf(r.fines)}</span>
+      <span class="sm">${finesOf(r.fines, r.paused)}</span>
       <p class="muted">Передай телефон: ход ${duel.names[playing]}. Слова те же, расклад другой.</p>
     </div>`;
   } else if (duel) {
     const [a, b] = duel.runs;
-    const tie = Math.round(a.ms / 100) === Math.round(b.ms / 100);
+    const tie = a.ms === b.ms;
     const win = tie ? -1 : a.ms < b.ms ? 0 : 1;
     body = html`<div class="race-end">
       ${tie ? null : html`<span class="race-cheer"><b lang="kk">Жарайсың, ${duel.names[win]}!</b> — молодец!</span>`}
       <b class="h2">${tie ? `Ничья — ${raceTime(a.ms)}` : `${duel.names[win]} быстрее на ${raceTime(Math.abs(a.ms - b.ms))}`}</b>
       <div class="duel-rows">${(win === 1 ? [1, 0] : [0, 1]).map((i) => html`<div class=${'duel-row' + (i === win ? ' win' : '')}>
         <span class=${'runner ' + (i ? 'p2' : 'me')} aria-hidden="true">${initial(duel.names[i])}</span>
-        <span class="grow"><b>${duel.names[i]}</b><span class="muted sm">${finesOf(duel.runs[i].fines)}</span></span>
+        <span class="grow"><b>${duel.names[i]}</b><span class="muted sm">${finesOf(duel.runs[i].fines, duel.runs[i].paused)}</span></span>
         <b class="duel-time">${raceTime(duel.runs[i].ms)}</b></div>`)}</div>
     </div>`;
   } else {
     const r = result;
-    const won = r.prev ? r.ms < r.prev : r.ms < total * BOTA_PACE;
-    const status = r.prev ? (won ? 'Новый рекорд!' : `До рекорда — ${raceTime(Math.max(100, r.ms - r.prev))}`)
+    // Older records may hold milliseconds: both sides are compared in tenths.
+    const gap = r.prev ? tenths(r.ms) - tenths(r.prev) : tenths(r.ms) - tenths(total * BOTA_PACE);
+    const won = !r.paused && gap < 0;
+    const status = r.paused ? 'Заезд прерывался — в рекорд не идёт'
+      : r.prev ? (won ? 'Новый рекорд!' : gap === 0 ? 'Ровно как рекорд' : `До рекорда — ${raceTime(gap * 100)}`)
       : won ? 'Ты обогнал(а) Боту!' : 'Бота пока быстрее';
     body = html`<div class="race-end">
       <span class="race-cheer"><b lang="kk">${won ? 'Жарайсың!' : 'Тағы бір рет!'}</b> ${won ? '— молодец!' : '— ещё разок!'}</span>
@@ -1752,7 +1858,7 @@ function RaceScreen({ st, update, go, ti, quick, setup, duel: duelIn }) {
     </div>`;
   } else if (phase === 'setup') {
     bottom = html`<div class="bottom pad race-bottom">
-      <button type="submit" form="duel-form" class="btn btn-primary btn-block" disabled=${!rivalName}>Начать дуэль</button>
+      <button type="submit" form="duel-form" class="btn btn-primary btn-block" disabled=${!rivalName}>Начать</button>
       ${links([['Играть одному', () => setPhase('ready')]])}
     </div>`;
   } else if (phase === 'handoff') {
@@ -2042,7 +2148,8 @@ function Profile({ st, update, go }) {
           <${Toggle} on=${st.settings.voice && hasVoice} disabled=${!hasVoice} label="Озвучка реплик" onChange=${(on) => update((d) => { d.settings.voice = on; })} />
         </div>
         <div class="set-row">
-          <span class="grow"><b>Запись голоса</b><span class="muted sm">${micUsable ? 'в заданиях «Скажи вслух»; запись остаётся на телефоне' : 'в этой версии приложения микрофон недоступен'}</span></span>
+          <span class="grow"><b>Запись голоса</b><span class="muted sm">${micUsable ? 'в заданиях «Скажи вслух»; запись остаётся на телефоне'
+            : html`здесь микрофон недоступен — запись работает <a href=${SITE} target="_blank" rel="noopener">на сайте</a>`}</span></span>
           <${Toggle} on=${st.settings.mic && micUsable} disabled=${!micUsable} label="Запись голоса"
             onChange=${(on) => { if (on) micTrouble = ''; update((d) => { d.settings.mic = on; }); }} />
         </div>

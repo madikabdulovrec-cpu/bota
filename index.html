@@ -258,6 +258,14 @@ button.vplay { cursor: pointer; }
 .rec-meter i { flex: 1; max-width: 4px; min-height: 4px; border-radius: 2px; background: var(--teal); transition: height 0.05s linear; }
 .stop-glyph { display: inline-block; width: 13px; height: 13px; border-radius: 3px; background: currentColor; }
 .b-dur { font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--on-teal-soft); }
+.ctl:disabled { opacity: 0.45; cursor: default; }
+.say-status { font-size: 13px; line-height: 1.4; color: var(--hint-ink); text-align: center; }
+/* Said aloud without a recording: the phrase and a quiet mark, not a voice message. */
+.b-said { display: flex; flex-direction: column; gap: 4px; }
+.b-said-row { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; color: var(--on-teal-soft); }
+.b-sample { padding: 4px 2px; border: none; background: none; color: var(--on-teal); font: inherit; font-weight: 800; text-decoration: underline; cursor: pointer; }
+.race-open { align-self: stretch; justify-content: center; }
+.muted a, .sm a { color: var(--teal-ink); font-weight: 700; }
 .done-head { display: flex; align-items: center; gap: 10px; }
 .done-head > svg { flex-shrink: 0; }
 .cando { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: 16px; background: var(--bg); border: 1.5px solid var(--line); }
@@ -469,7 +477,9 @@ button.vplay { cursor: pointer; }
 .race-miss { align-self: stretch; display: flex; flex-direction: column; gap: 6px; margin-top: 10px; text-align: left; }
 .race-bottom { display: flex; flex-direction: column; gap: 2px; }
 .race-bottom .done-links { margin-top: 0; }
-@media (prefers-reduced-motion: reduce) { .pair-chip, .race-count b, .race-fine, .runner { animation: none; transition: none; } }
+/* With less motion the fine mark still fades away, without moving. */
+@keyframes fade-out { from { opacity: 1; } to { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .pair-chip, .race-count b, .runner { animation: none; transition: none; } .race-fine { animation-name: fade-out; } }
 
 /* 08 phrasebook */
 .phrasebook { display: flex; flex-direction: column; gap: 12px; padding-top: 16px; padding-bottom: 20px; }
@@ -581,5 +591,5 @@ button.vplay { cursor: pointer; }
   }
   window.botaBoot = setTimeout(botaFail, 10000);
 </script>
-<script type="module" src="./app.js" onerror="botaFail()"></script>
+<script type="module" src="./app.js?v=1efdd97" onerror="botaFail()"></script>
 </body></html>

@@ -3,9 +3,9 @@
 // Templates in strings: {name}, {cityAbl}, {cityAblSyl}, {cityFrom}, {cityLoc}, {cityIn}.
 // A step field may also be a function of the learner's variables (v) => string.
 
-import { A2_PEOPLE, A2_PHRASES, A2_TOPICS } from './content-a2.js';
-import { B1_PEOPLE, B1_PHRASES, B1_TOPICS } from './content-b1.js';
-import { B2_PEOPLE, B2_PHRASES, B2_TOPICS } from './content-b2.js';
+import { A2_PEOPLE, A2_PHRASES, A2_TOPICS } from './content-a2.js?v=1efdd97';
+import { B1_PEOPLE, B1_PHRASES, B1_TOPICS } from './content-b1.js?v=1efdd97';
+import { B2_PEOPLE, B2_PHRASES, B2_TOPICS } from './content-b2.js?v=1efdd97';
 
 export const KINDS = {
   listen: { label: 'Послушай', icon: 'ear' },
@@ -186,7 +186,7 @@ export const TOPICS = [
   {
     id: 'salem', title: 'Приветствия', kk: 'Сәлемдесу', who: 'aje',
     words: [['сәлем', 'привет'], ['әже', 'бабушка'], ['бала', 'ребёнок'], ['рақмет', 'спасибо'], ['жақсы', 'хорошо'],
-      ['жоқ', 'нет'], ['иә', 'да'], ['қалай', 'как'], ['сау бол', 'пока'], ['шүкір', 'слава богу']],
+      ['хабарласу', 'звонить'], ['иә', 'да'], ['қалай', 'как'], ['сау бол', 'пока'], ['шүкір', 'слава богу']],
     convs: [
       {
         id: 'salem.1', kind: 'listen', title: 'Әже звонит по видео',
@@ -305,7 +305,7 @@ export const TOPICS = [
   {
     id: 'tanysu', title: 'Знакомство', kk: 'Танысу', who: 'erlan',
     words: [['ат', 'имя'], ['кім', 'кто'], ['танысу', 'знакомиться'], ['қуанышты', 'рад'], ['қала', 'город'],
-      ['қай', 'который'], ['дос', 'друг'], ['көрші', 'сосед'], ['сурет', 'фото'], ['керемет', 'здорово']],
+      ['қай', 'какой'], ['дос', 'друг'], ['көрші', 'сосед'], ['сурет', 'фото'], ['керемет', 'здорово']],
     convs: [
       {
         id: 'tanysu.1', kind: 'listen', title: 'Новый сосед',
@@ -1217,7 +1217,7 @@ export const TOPICS = [
   },
   {
     id: 'hobbi', title: 'Любимое дело', kk: 'Сүйікті іс', who: 'nurlan',
-    words: [['домбыра тарту', 'играть на домбре'], ['ұнату', 'любить'], ['бос уақыт', 'свободное время'], ['айналысу', 'заниматься'], ['үйрену', 'учиться'],
+    words: [['апта', 'неделя'], ['ұнату', 'любить'], ['бос уақыт', 'свободное время'], ['айналысу', 'заниматься'], ['үйрену', 'учиться'],
       ['қиын', 'сложный'], ['түсіну', 'понимать'], ['шақыру', 'звать'], ['жарайсың', 'молодец'], ['сәрсенбі', 'среда']],
     convs: [
       {
@@ -1935,6 +1935,14 @@ TOPICS.forEach((t) => { t.level = t.level || 'A1'; });
 Object.assign(PEOPLE, A2_PEOPLE, B1_PEOPLE, B2_PEOPLE);
 Object.assign(PHRASES, A2_PHRASES, B1_PHRASES, B2_PHRASES);
 TOPICS.push(...A2_TOPICS, ...B1_TOPICS, ...B2_TOPICS);
+
+// «Бәйге» across topics: words close in meaning or form never meet in one race, so that a pair that
+// is right by sense is never counted as a mistake. Each group lists race words (words of topics).
+export const RACE_APART = [
+  ['мүмкін', 'бәлкім'], ['ата-ана', 'әке-шеше'], ['уайымдау', 'қобалжу'], ['оқиға', 'әңгіме'],
+  ['үлкен', 'зор'], ['мереке', 'той'], ['шығу', 'түсу'], ['оқу', 'үйрену'], ['қорытынды', 'ақырында'],
+  ['құтты болсын', 'құттықтау'], ['жазылу', 'жазып алу'], ['басталу', 'бастау'], ['кешкі', 'кешке'], ['тілек', 'тілеу'],
+];
 
 // Optional section «Как устроен казахский»: one idea, one example, no terms.
 export const RULES = [

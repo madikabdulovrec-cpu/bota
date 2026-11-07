@@ -41,12 +41,14 @@ function squeeze(levels, n) {
   return out;
 }
 
-// Starts at once, so call it from the tap itself. onLevel(0..1) comes about 20 times a second.
-// The recording stops by itself quietMs after the speech ends, after waitMs without speech, or
-// at maxMs. Returns { stop, done }; done resolves { blob, url, ms, voicedMs, heard, levels } or
+// Starts at once, so call it from the tap itself. onStart() comes when the microphone is really on
+// (the first time, after the browser has asked); onLevel(0..1) about 20 times a second. The
+// recording stops by itself quietMs after the speech ends (long enough for a learner reading by
+// syllables), after waitMs without speech, or at maxMs. Returns { stop, cancel, done }; done
+// resolves { blob, url, ms, voicedMs, heard, levels } — or { cancelled: true } after cancel() — and
 // rejects with code denied (not allowed), nomic (no microphone), busy (taken by another app),
 // unsupported or failed.
-export function record({ onLevel = () => {}, maxMs = 10000, quietMs = 1300, waitMs = 6000 } = {}) {
+export function record({ onLevel = () => {}, onStart = () => {}, maxMs = 10000, quietMs = 2200, waitMs = 6000 } = {}) {
   // iOS lets audio start only within the tap: the context is made before anything is awaited.
   const AC = typeof window !== 'undefined' && (window.AudioContext || window.webkitAudioContext);
   let ctx = null;
@@ -58,9 +60,15 @@ export function record({ onLevel = () => {}, maxMs = 10000, quietMs = 1300, wait
   }
   let stopNow = null;
   let stopped = false;
+  let cancelled = false;
   const stop = () => {
     stopped = true;
     if (stopNow) stopNow();
+  };
+  // Stop and throw the recording away: the learner pressed something else meanwhile.
+  const cancel = () => {
+    cancelled = true;
+    stop();
   };
 
   const done = (async () => {
@@ -77,6 +85,10 @@ export function record({ onLevel = () => {}, maxMs = 10000, quietMs = 1300, wait
       throw failure(n === 'NotAllowedError' || n === 'SecurityError' || n === 'PermissionDeniedError' ? 'denied'
         : n === 'NotFoundError' || n === 'DevicesNotFoundError' || n === 'OverconstrainedError' ? 'nomic'
         : n === 'NotReadableError' || n === 'TrackStartError' || n === 'AbortError' ? 'busy' : 'failed');
+    }
+    // After the permission dialog the context may still be asleep (Safari): wake it, or the meter reads zeros.
+    if (ctx && ctx.state !== 'running') {
+      try { await ctx.resume(); } catch (e) { /* the meter may stay silent; see peak below */ }
     }
 
     const chunks = [];
@@ -107,10 +119,12 @@ export function record({ onLevel = () => {}, maxMs = 10000, quietMs = 1300, wait
     const t0 = Date.now();
     const levels = [];
     let floor = 1;
+    let peak = 0;
     let voicedMs = 0;
     let lastVoice = t0;
     let heard = false;
     let prev = t0;
+    if (!stopped) onStart();
     const ms = await new Promise((resolve) => {
       let id = null;
       const finish = () => {
@@ -129,6 +143,7 @@ export function record({ onLevel = () => {}, maxMs = 10000, quietMs = 1300, wait
           let sum = 0;
           for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
           const rms = Math.sqrt(sum / buf.length);
+          peak = Math.max(peak, rms);
           // The quietest moment is the room; speech stands well above it, whatever the phone.
           floor = Math.min(floor, Math.max(rms, 0.002));
           if (rms > Math.min(0.06, Math.max(0.015, floor * 3))) {
@@ -141,7 +156,10 @@ export function record({ onLevel = () => {}, maxMs = 10000, quietMs = 1300, wait
         levels.push(level);
         onLevel(level);
         const t = now - t0;
-        if (t >= maxMs || (heard && now - lastVoice >= quietMs) || (analyser && !heard && t >= waitMs)) finish();
+        // A meter that reads pure zeros is broken (old WebKit), not a silent room: then only the
+        // learner's «Готово» or maxMs ends the recording.
+        const metered = !!analyser && peak > 0;
+        if (t >= maxMs || (metered && heard && now - lastVoice >= quietMs) || (metered && !heard && t >= waitMs)) finish();
       }, 50);
       stopNow = finish;
       if (stopped) finish();
@@ -157,18 +175,19 @@ export function record({ onLevel = () => {}, maxMs = 10000, quietMs = 1300, wait
     }
     stream.getTracks().forEach((t) => t.stop());
     closeCtx(ctx);
+    if (cancelled) return { cancelled: true };
     const blob = chunks.length ? new Blob(chunks, { type: (rec && rec.mimeType) || chunks[0].type || 'audio/webm' }) : null;
     return {
       blob,
       url: blob ? URL.createObjectURL(blob) : null,
       ms,
       voicedMs,
-      // Without Web Audio there is no meter: a recording stopped by hand after a moment counts as said.
-      heard: analyser ? heard : ms > 600,
+      // Without a working meter a recording stopped by hand after a moment counts as said.
+      heard: analyser && peak > 0 ? heard : ms > 600,
       levels: squeeze(levels, 24),
     };
   })();
-  return { stop, done };
+  return { stop, cancel, done };
 }
 
 // One recording plays at a time.

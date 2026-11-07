@@ -3,7 +3,7 @@
 // audio-index.js, made by tools/audio.mjs and tools/audio_synth.py). Second: the browser's own
 // Kazakh voice (Web Speech; Edge ships online voices Aigul and Daulet). A line with the learner's
 // name has no file, and most browsers have no Kazakh voice, so every caller must work without sound.
-import { AUDIO } from './audio-index.js?v=b84d041';
+import { AUDIO } from './audio-index.js?v=ce769eb';
 
 let voice = null;
 const listeners = new Set();
@@ -31,8 +31,9 @@ function probe() {
   if (probed || !AUDIO.size || typeof fetch === 'undefined') return;
   probed = true;
   const first = AUDIO.values().next().value;
+  // A host may answer any address with a page: only a real sound file counts.
   fetch(`audio/${first}.mp3`, { method: 'HEAD' })
-    .then((r) => { if (r.ok) { filesOk = true; changed(); } })
+    .then((r) => { if (r.ok && /audio|mpeg/i.test(r.headers.get('content-type') || '')) { filesOk = true; changed(); } })
     .catch(() => { /* no files here: the browser's voice, if any */ });
 }
 

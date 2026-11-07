@@ -1,11 +1,11 @@
 // Бота — MVP: conversational Kazakh for Russian speakers.
 import { html, render, useState, useEffect, useRef, useMemo, useErrorBoundary } from 'https://cdn.jsdelivr.net/npm/htm@3.1.1/preact/standalone.module.js';
-import { KINDS, CITIES, JOBS, HOBBIES, CHOICES, PEOPLE, PHRASES, TOPICS, LEVELS, RULES, RESCUE, PHRASEBOOK, BABY, BABY_GROUPS, BABY_AGES, BABY_GOAL, FACTS, RACE_APART } from './content.js?v=b84d041';
-import * as fsrs from './fsrs.js?v=b84d041';
-import * as voice from './voice.js?v=b84d041';
-import * as mic from './mic.js?v=b84d041';
-import { KZ_LETTERS, checkTyped, normType, plain } from './typing.js?v=b84d041';
-import { Icon, PlayGlyph, SpeakerGlyph, Sun, Logo, Bota, Avatar, Yurt, Photo, Shanyrak, Wave } from './art.js?v=b84d041';
+import { KINDS, CITIES, JOBS, HOBBIES, CHOICES, PEOPLE, PHRASES, TOPICS, LEVELS, RULES, RESCUE, PHRASEBOOK, BABY, BABY_GROUPS, BABY_AGES, BABY_GOAL, FACTS, RACE_APART } from './content.js?v=ce769eb';
+import * as fsrs from './fsrs.js?v=ce769eb';
+import * as voice from './voice.js?v=ce769eb';
+import * as mic from './mic.js?v=ce769eb';
+import { KZ_LETTERS, checkTyped, normType, plain } from './typing.js?v=ce769eb';
+import { Icon, PlayGlyph, SpeakerGlyph, Sun, Logo, Bota, Avatar, Yurt, Photo, Shanyrak, Wave } from './art.js?v=ce769eb';
 
 /* ---------- storage: progress lives in this browser only ---------- */
 

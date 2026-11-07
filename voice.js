@@ -3,7 +3,7 @@
 // audio-index.js, made by tools/audio.mjs and tools/audio_synth.py). Second: the browser's own
 // Kazakh voice (Web Speech; Edge ships online voices Aigul and Daulet). A line with the learner's
 // name has no file, and most browsers have no Kazakh voice, so every caller must work without sound.
-import { AUDIO } from './audio-index.js?v=ce769eb';
+import { AUDIO } from './audio-index.js?v=e1f9ffb';
 
 let voice = null;
 const listeners = new Set();

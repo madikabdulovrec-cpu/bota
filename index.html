@@ -38,9 +38,6 @@
   --cool: #3E63C8;
   --cool-ink: #2B4699;
   --cool-soft: #E3EAFA;
-  --ok: #2E8B57;
-  --ok-ink: #16663F;
-  --ok-soft: #E4F3EA;
   --bad: #C44536;
   --bad-ink: #8F2F23;
   --bad-soft: #FBE9E6;
@@ -60,7 +57,6 @@
     --gold: #E8A013; --gold-sun: #F6CF6B; --gold-deep: #E8B84F; --gold-ink: #F1C766; --gold-wash: #2A2414; --gold-soft: #3A3018; --gold-line: #5C4A1C; --hint-ink: #F3D88E;
     --warm: #E57D3E; --warm-ink: #F6B78F; --warm-soft: #3B2416;
     --cool: #7393EC; --cool-ink: #B0C3F6; --cool-soft: #1F2B4B;
-    --ok: #44B47A; --ok-ink: #9BE0B9; --ok-soft: #14301F;
     --bad: #E5705F; --bad-ink: #F6B1A7; --bad-soft: #3A1D19;
     --night: #0A3A41; --on-night: #FFFFFF; --on-night-soft: #A9D3D9;
     --focus: #F2B84B; --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
@@ -74,7 +70,6 @@
   --gold: #E8A013; --gold-sun: #F6CF6B; --gold-deep: #E8B84F; --gold-ink: #F1C766; --gold-wash: #2A2414; --gold-soft: #3A3018; --gold-line: #5C4A1C; --hint-ink: #F3D88E;
   --warm: #E57D3E; --warm-ink: #F6B78F; --warm-soft: #3B2416;
   --cool: #7393EC; --cool-ink: #B0C3F6; --cool-soft: #1F2B4B;
-  --ok: #44B47A; --ok-ink: #9BE0B9; --ok-soft: #14301F;
   --bad: #E5705F; --bad-ink: #F6B1A7; --bad-soft: #3A1D19;
   --night: #0A3A41; --on-night: #FFFFFF; --on-night-soft: #A9D3D9;
   --focus: #F2B84B; --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
@@ -93,6 +88,8 @@ p { margin: 0; }
 .pad { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
 .screen { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+/* A screen longer than the phone scrolls; its blocks never squeeze (a squeezed greeting overlapped the circles). */
+.scroll > * { flex-shrink: 0; }
 .grow { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 
 .boot { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; }
@@ -124,6 +121,7 @@ p { margin: 0; }
 .btn-chip.primary { background: var(--teal); border-color: var(--teal); color: var(--on-teal); }
 .btn:active, .btn-chip:active, .opt:active, .wchip:active { transform: translateY(1px); }
 .link-btn { min-height: 44px; padding: 0 8px; border: none; background: none; color: var(--teal-ink); font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; }
+a.btn, a.link-btn { display: inline-flex; align-items: center; text-decoration: none; }
 .btn-chip:disabled { opacity: 0.5; cursor: default; }
 .icon-btn { flex-shrink: 0; width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; border: none; background: transparent; color: var(--muted); border-radius: 12px; cursor: pointer; }
 .say-btn { position: relative; flex-shrink: 0; width: 36px; height: 36px; border-radius: 50%; border: none; background: var(--teal-soft); color: var(--teal-ink); display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; cursor: pointer; }
@@ -230,14 +228,12 @@ button.vplay { cursor: pointer; }
 .opt.kk > span { font-size: 15.5px; font-weight: 700; }
 .opt small { font-size: 12.5px; font-weight: 500; color: var(--muted); }
 .opt.sel { border: 2px solid var(--teal); background: var(--teal-wash); }
-.opt.good { border: 2px solid var(--ok); }
+.opt.good { border: 2px solid var(--teal); }
 .opt.bad { border: 2px dashed var(--muted); color: var(--muted); }
-.opt.dim { opacity: 0.55; }
 .opt.mode > span { font-size: 15.5px; font-weight: 800; }
-.rev-note { margin: 0; font-size: 13.5px; line-height: 1.45; color: var(--ink2); }
 .build-row { display: flex; align-items: center; gap: 8px; }
 .build-field { flex: 1; min-width: 0; min-height: 56px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 5px; border: 1.5px solid var(--line); border-radius: 28px; background: var(--bg); }
-.build-field.bad { border-color: var(--bad); }
+.build-field.bad { border-style: dashed; border-color: var(--muted); }
 .placeholder { padding-left: 10px; }
 .wchip { min-height: 44px; padding: 0 15px; border-radius: 22px; border: 1.5px solid var(--line2); background: var(--card); color: var(--ink); font-size: 15.5px; font-weight: 600; cursor: pointer; }
 .wchip.in { border-color: transparent; background: var(--teal-soft); color: var(--teal-ink); font-weight: 700; }
@@ -249,6 +245,8 @@ button.vplay { cursor: pointer; }
 .say-kk { font-family: var(--font-display); font-weight: 800; font-size: 24px; line-height: 1.2; }
 .say-syl { font-size: 13.5px; letter-spacing: 0.2px; color: var(--muted); }
 .say-ru { font-size: 12.5px; color: var(--muted); }
+.say-mean { font-family: var(--font-display); font-weight: 800; font-size: 21px; line-height: 1.25; }
+.peek { align-self: flex-start; margin-left: -8px; }
 .say-ctl { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .ctl { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 14px; border-radius: 14px; border: none; background: var(--teal-soft); color: var(--teal-ink); font-size: 13.5px; font-weight: 700; cursor: pointer; }
 /* Recording «Скажи вслух»: a warm dot, «Слушаю…» and the live level of the microphone. */
@@ -310,7 +308,7 @@ button.vplay { cursor: pointer; }
 .rule-row .rule-body { padding: 0 14px 14px; }
 .chev { display: inline-flex; color: var(--dim); transition: transform 0.15s; }
 .rule-row.open .chev { transform: rotate(180deg); }
-.seen { display: inline-flex; color: var(--ok); }
+.seen { display: inline-flex; color: var(--teal); }
 .game { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 18px; background: var(--bg); border: 1.5px solid var(--line); }
 .word { display: flex; align-items: center; justify-content: center; gap: 4px; font-family: var(--font-display); font-weight: 900; font-size: 26px; line-height: 1.2; }
 .slot { padding: 6px 12px; }
@@ -320,8 +318,8 @@ button.vplay { cursor: pointer; }
 .slot.hard { border-radius: 999px; border: 2px solid var(--warm); background: var(--warm-soft); color: var(--warm-ink); }
 .slot.soft { border-radius: 6px; border: 2px solid var(--cool); background: var(--cool-soft); color: var(--cool-ink); }
 .game-line { text-align: center; font-size: 13.5px; font-weight: 600; color: var(--muted); }
-.game-line.bad { color: var(--bad-ink); }
-.game-line.good { color: var(--ok-ink); font-weight: 800; }
+.game-line.bad { color: var(--hint-ink); }
+.game-line.good { color: var(--teal-ink); font-weight: 800; }
 .game-row { display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 700; }
 .game-row.off .grow { color: var(--dim); }
 .sfx { flex-shrink: 0; min-width: 64px; height: 44px; padding: 0 14px; background: var(--card); font-family: var(--font-display); font-size: 17px; font-weight: 900; cursor: pointer; }
@@ -339,13 +337,6 @@ button.vplay { cursor: pointer; }
 /* 01 onboarding */
 .ob-hello { display: flex; flex-direction: column; gap: 4px; padding-top: 8px; padding-bottom: 6px; }
 .hello { font-family: var(--font-display); font-weight: 900; font-size: 44px; line-height: 1.05; }
-.lang-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.lang { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-height: 84px; padding: 10px; border-radius: 16px; border: 1.5px solid var(--line); background: var(--card); color: var(--ink); text-align: left; cursor: pointer; }
-.lang > span:last-child { display: flex; flex-direction: column; gap: 1px; }
-.lang.on { border: 2px solid var(--teal); background: var(--teal-wash); }
-.lang:disabled { opacity: 0.55; cursor: default; }
-.glyph { width: 34px; height: 34px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; background: var(--chip); color: var(--ink2); font-size: 13px; font-weight: 800; }
-.lang.on .glyph { background: var(--teal); color: var(--on-teal); }
 .minutes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .min { display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 72px; padding: 10px; border-radius: 16px; border: 1.5px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; }
 .min b { font-family: var(--font-display); font-weight: 900; font-size: 24px; font-variant-numeric: tabular-nums; }
@@ -357,6 +348,8 @@ button.vplay { cursor: pointer; }
 .home-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; }
 .streak { flex-shrink: 0; display: inline-flex; align-items: center; gap: 5px; padding: 6px 11px; border-radius: 14px; background: var(--card); border: 1.5px solid var(--gold-line); color: var(--gold-ink); font-size: 13px; font-weight: 800; }
 .map { position: relative; width: 100%; max-width: 342px; margin: 0 auto; aspect-ratio: 1 / 1; }
+/* Short phones (iPhone SE): the circle is smaller, so the main button of the card stays above the tabs. */
+@media (max-height: 700px) { .map { max-width: 290px; } .home { gap: 12px; padding-top: 12px; } .home-head .h1 { font-size: 22px; } }
 .map-svg { position: absolute; inset: 0; width: 100%; height: 100%; }
 .ring1 { fill: none; stroke: var(--line2); stroke-width: 3; }
 .ring1-done { fill: none; stroke: var(--teal); stroke-width: 3; stroke-linecap: round; }
@@ -367,7 +360,8 @@ button.vplay { cursor: pointer; }
 .level { flex: 1; min-width: 0; min-height: 44px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 3px 2px; border: none; border-radius: 12px; background: transparent; color: var(--muted); font-size: 13px; font-weight: 800; line-height: 1.2; cursor: pointer; }
 .level span { font-size: 11px; font-weight: 700; }
 .level.on { background: var(--card); color: var(--ink); box-shadow: 0 1px 3px rgba(10, 40, 48, 0.12); }
-.ring-label { position: absolute; left: 50%; top: 3%; transform: translate(-50%, -50%); display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 10px; border-radius: 12px; border: 1.5px solid var(--line2); background: var(--bg); color: var(--muted); font-size: 11.5px; font-weight: 800; white-space: nowrap; }
+/* The next circle's name runs along the outer dashed ring, so it does not read as the top person's name. */
+.ring-name { font-family: var(--font-body); font-size: 10px; font-weight: 800; letter-spacing: 1.4px; fill: var(--muted); }
 .map-center { position: absolute; left: 50%; top: 56.5%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 1px 8px; border-radius: 10px; background: var(--bg); text-align: center; white-space: nowrap; }
 .map-center b { font-size: 12px; font-weight: 800; color: var(--ink2); }
 .map-center span { font-size: 11.5px; font-weight: 600; color: var(--muted); }
@@ -401,9 +395,8 @@ button.vplay { cursor: pointer; }
 .conv-row.open { border: 2px solid var(--teal); }
 .conv-row.locked { opacity: 0.55; cursor: default; }
 .conv-ic { flex-shrink: 0; width: 40px; height: 40px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; background: var(--teal-soft); color: var(--teal-ink); }
-.conv-row.done .conv-ic { background: var(--ok-soft); color: var(--ok-ink); }
 .state { flex-shrink: 0; display: inline-flex; align-items: center; color: var(--dim); }
-.state.ok { color: var(--ok); }
+.state.ok { color: var(--teal); }
 .state.now { padding: 4px 10px; border-radius: 10px; background: var(--gold-wash); border: 1.5px solid var(--gold-line); color: var(--gold-ink); font-size: 12px; font-weight: 800; }
 .learn { display: flex; flex-direction: column; gap: 8px; }
 .learn-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 16px; background: var(--card); border: 1.5px solid var(--line); }
@@ -412,6 +405,11 @@ button.vplay { cursor: pointer; }
 .review { display: flex; flex-direction: column; gap: 14px; padding-top: 20px; padding-bottom: 20px; }
 .rev-card { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 22px 16px; border-radius: 22px; background: var(--card); border: 1.5px solid var(--line); text-align: center; }
 .rev-ru { font-family: var(--font-display); font-weight: 900; font-size: 24px; line-height: 1.25; }
+.rev-kk { align-self: stretch; display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 10px; margin-top: 6px; padding-top: 14px; border-top: 1.5px dashed var(--line2); }
+.rev-kk b { font-family: var(--font-display); font-weight: 900; font-size: 22px; line-height: 1.25; color: var(--teal-ink); }
+.grades { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.grade { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: 60px; padding: 8px; border-radius: 16px; border: 1.5px solid var(--line2); background: var(--card); color: var(--ink); font-size: 14.5px; cursor: pointer; }
+.grade:active { transform: translateY(1px); }
 .review-end { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding-top: 40px; padding-bottom: 40px; text-align: center; }
 .orn-big { display: inline-flex; padding: 16px; border-radius: 50%; background: var(--gold-wash); color: var(--gold-deep); }
 
@@ -518,7 +516,7 @@ button.vplay { cursor: pointer; }
 .cloud { display: flex; flex-wrap: wrap; gap: 6px; }
 .cloud span { padding: 4px 10px; border-radius: 10px; background: var(--teal-wash); color: var(--teal-ink); font-size: 12.5px; font-weight: 700; }
 .said-btn { flex-shrink: 0; min-height: 44px; padding: 0 12px; border-radius: 22px; border: 1.5px solid var(--line2); background: var(--card); color: var(--ink2); font-size: 12.5px; font-weight: 700; white-space: nowrap; cursor: pointer; }
-.said-btn.on { border-color: var(--ok); background: var(--ok-soft); color: var(--ok-ink); }
+.said-btn.on { border-color: var(--teal); background: var(--teal-wash); color: var(--teal-ink); }
 .baby-tip { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; line-height: 1.45; color: var(--muted); }
 .baby-tip > svg { flex-shrink: 0; }
 .suggest { align-items: stretch; border: 2px solid var(--teal-line); background: var(--teal-wash); color: var(--ink); text-align: left; cursor: pointer; }
@@ -531,7 +529,7 @@ button.vplay { cursor: pointer; }
 .scen-foot { display: flex; margin-top: auto; padding-top: 6px; }
 .pips { display: inline-flex; gap: 4px; }
 .pips i { width: 8px; height: 8px; border-radius: 50%; background: var(--line2); }
-.pips i.on { background: var(--ok); }
+.pips i.on { background: var(--teal); }
 .age { padding: 2px 8px; border-radius: 8px; background: var(--chip); color: var(--muted); font-size: 11.5px; font-weight: 700; }
 .m-tip.static { align-self: stretch; max-width: none; }
 .age-chips { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -548,6 +546,10 @@ button.vplay { cursor: pointer; }
 .shanyrak { flex-shrink: 0; }
 .shanyrak line { stroke-linecap: round; }
 .spoke-done { stroke: var(--gold); stroke-width: 5; }
+/* The уық added today, when the day's goal is reached: wider, and it appears with a short fade. */
+.spoke-new { stroke-width: 11; animation: uyq 0.8s ease-out both; }
+@keyframes uyq { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .spoke-new { animation: none; } }
 .spoke-today { stroke: var(--teal); stroke-width: 4; stroke-dasharray: 4 4; }
 .spoke-miss { stroke: var(--line2); stroke-width: 5; }
 .spoke-future { stroke: var(--line); stroke-width: 3; stroke-dasharray: 3 5; }
@@ -597,5 +599,5 @@ button.vplay { cursor: pointer; }
   }
   window.botaBoot = setTimeout(botaFail, 10000);
 </script>
-<script type="module" src="./app.js?v=ce769eb" onerror="botaFail()"></script>
+<script type="module" src="./app.js?v=e1f9ffb" onerror="botaFail()"></script>
 </body></html>

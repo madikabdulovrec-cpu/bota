@@ -1,11 +1,11 @@
 // Бота — MVP: conversational Kazakh for Russian speakers.
 import { html, render, useState, useEffect, useRef, useMemo, useErrorBoundary } from 'https://cdn.jsdelivr.net/npm/htm@3.1.1/preact/standalone.module.js';
-import { KINDS, CITIES, JOBS, HOBBIES, CHOICES, PEOPLE, PHRASES, TOPICS, LEVELS, RULES, RESCUE, PHRASEBOOK, BABY, BABY_GROUPS, BABY_AGES, BABY_GOAL, FACTS, RACE_APART } from './content.js?v=ce769eb';
-import * as fsrs from './fsrs.js?v=ce769eb';
-import * as voice from './voice.js?v=ce769eb';
-import * as mic from './mic.js?v=ce769eb';
-import { KZ_LETTERS, checkTyped, normType, plain } from './typing.js?v=ce769eb';
-import { Icon, PlayGlyph, SpeakerGlyph, Sun, Logo, Bota, Avatar, Yurt, Photo, Shanyrak, Wave } from './art.js?v=ce769eb';
+import { KINDS, CITIES, JOBS, HOBBIES, CHOICES, PEOPLE, PHRASES, TOPICS, LEVELS, RULES, RESCUE, PHRASEBOOK, BABY, BABY_GROUPS, BABY_AGES, BABY_GOAL, FACTS, RACE_APART } from './content.js?v=e1f9ffb';
+import * as fsrs from './fsrs.js?v=e1f9ffb';
+import * as voice from './voice.js?v=e1f9ffb';
+import * as mic from './mic.js?v=e1f9ffb';
+import { KZ_LETTERS, checkTyped, normType, plain } from './typing.js?v=e1f9ffb';
+import { Icon, PlayGlyph, SpeakerGlyph, Sun, Logo, Bota, Avatar, Yurt, Photo, Shanyrak, Wave } from './art.js?v=e1f9ffb';
 
 /* ---------- storage: progress lives in this browser only ---------- */
 
@@ -19,6 +19,8 @@ function fresh() {
     v: 1,
     profile: { name: '', mode: 'talk', minutes: 10, onboarded: false },
     done: {}, days: {}, mem: {}, rules: {}, vars: {},
+    // How many memory reviews were finished on a day: each one counts as a lesson of the daily goal.
+    reviews: {},
     baby: { name: '', age: '', said: {} },
     // «Бәйге»: the best time of every race (a topic id, or mix), how often each word was mixed up,
     // and the name of the last rival in a duel on this phone.
@@ -27,8 +29,9 @@ function fresh() {
     // mic: «Скажи вслух» records the phrase with the microphone where the browser allows it.
     settings: { voice: true, trAuto: false, mic: true },
     // fact: the key of the last fact of the day shown (its date this year); install: 'never' once the
-    // learner turned down «Поставь Боту на экран»; persist: what the browser said to keeping storage.
-    seen: { fact: '', noVoice: false, trTap: false, install: '', persist: '' },
+    // learner turned down «Поставь Боту на экран»; persist: what the browser said to keeping storage;
+    // remind: the time of the daily reminder the learner put into the phone's calendar.
+    seen: { fact: '', noVoice: false, trTap: false, install: '', persist: '', remind: '' },
   };
 }
 
@@ -65,7 +68,7 @@ function normalize(d) {
   return {
     ...base,
     profile: { ...base.profile, ...obj(d.profile) },
-    done: obj(d.done), days: obj(d.days), rules: obj(d.rules), vars: obj(d.vars),
+    done: obj(d.done), days: obj(d.days), rules: obj(d.rules), vars: obj(d.vars), reviews: counts(d.reviews),
     mem: Object.fromEntries(Object.entries(obj(d.mem)).filter(([, c]) => isObj(c) && Number.isFinite(c.due))),
     baby: { ...base.baby, ...obj(d.baby), said: obj(obj(d.baby).said) },
     race: {
@@ -106,6 +109,7 @@ function mergeProgress(here, there) {
   Object.entries(there.done).forEach(([id, day]) => { out.done[id] = earlier(out.done[id], day); });
   Object.entries(there.rules).forEach(([id, day]) => { out.rules[id] = earlier(out.rules[id], day); });
   Object.entries(there.days).forEach(([day, on]) => { if (on) out.days[day] = true; });
+  Object.entries(there.reviews).forEach(([day, n]) => { out.reviews[day] = Math.max(out.reviews[day] || 0, n); });
   const reviewed = (c) => (Number.isFinite(c.last) ? c.last : 0);
   Object.entries(there.mem).forEach(([id, card]) => { if (!out.mem[id] || reviewed(card) > reviewed(out.mem[id])) out.mem[id] = card; });
   out.vars = { ...there.vars, ...out.vars };
@@ -146,6 +150,8 @@ async function saveFile(filename, text) {
 // Only the site build carries a manifest (tools/site.mjs): there the app can be put on the home
 // screen and works offline. The claude.ai artifact and the local preview have none.
 const SITE_BUILD = !!document.querySelector('link[rel="manifest"]');
+// The same app at its own address, where the microphone and the recorded voice work.
+const SITE = 'https://madikabdulovrec-cpu.github.io/bota/';
 const standalone = () => (!!window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
 // Chrome on Android offers its own install dialog; it is kept for the moment the learner asks.
 let installPrompt = null;
@@ -222,17 +228,7 @@ function useInstall(update) {
 function InstallSheet({ onClose, onNever }) {
   const how = INSTALL_STEPS[installHow()];
   const box = useRef(null);
-  useEffect(() => {
-    const back = document.activeElement;
-    const title = box.current && box.current.querySelector('h2');
-    if (title) title.focus();
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      if (back && back.focus && document.contains(back)) back.focus();
-    };
-  }, []);
+  useSheet(box, onClose);
   return html`<div class="sheet-back" onClick=${onClose}>
     <div class="sheet pad" ref=${box} role="dialog" aria-modal="true" aria-label=${how.title} onClick=${(e) => e.stopPropagation()}>
       <span class="sheet-grip" aria-hidden="true"></span>
@@ -243,6 +239,108 @@ function InstallSheet({ onClose, onNever }) {
       <span class="done-links"><button type="button" class="link-btn" onClick=${onNever}>Не напоминать</button></span>
     </div>
   </div>`;
+}
+
+/* ---------- the phone's «Назад» and the sheets ---------- */
+
+// The page keeps one entry of the browser's history ahead of the one it was opened on: «Назад»
+// returns to that entry, and the app catches it and goes one screen up (App). Not inside the
+// claude.ai frame, whose history belongs to the page around it.
+const OWN_HISTORY = window.self === window.top && !!window.history && typeof history.pushState === 'function';
+function armBack() {
+  if (!OWN_HISTORY || (history.state && history.state.bota)) return;
+  try { history.pushState({ bota: 1 }, ''); } catch (e) { /* «Назад» then leaves the page, as before */ }
+}
+
+// An open sheet closes on «Назад» before any screen changes; the last one opened goes first.
+const closers = [];
+
+// A sheet is modal: it takes the focus to its title, keeps Tab inside, closes on Escape and on
+// «Назад», and gives the focus back.
+function useSheet(box, onClose) {
+  const close = useRef(onClose);
+  close.current = onClose;
+  useEffect(() => {
+    const back = document.activeElement;
+    const title = box.current && box.current.querySelector('h2');
+    if (title) title.focus();
+    const shut = () => close.current();
+    const onKey = (e) => {
+      if (e.key === 'Escape') shut();
+      if (e.key !== 'Tab' || !box.current) return;
+      const items = [...box.current.querySelectorAll('button:not([disabled]), a[href]')];
+      if (!items.length) return;
+      const active = document.activeElement;
+      if (e.shiftKey && (active === items[0] || active === title || !box.current.contains(active))) {
+        e.preventDefault();
+        items[items.length - 1].focus();
+      } else if (!e.shiftKey && (active === items[items.length - 1] || !box.current.contains(active))) {
+        e.preventDefault();
+        items[0].focus();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    closers.push(shut);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      const i = closers.indexOf(shut);
+      if (i >= 0) closers.splice(i, 1);
+      if (back && back.focus && document.contains(back)) back.focus();
+    };
+  }, []);
+}
+
+/* ---------- a daily reminder through the phone's calendar ---------- */
+
+// No server is needed: the learner adds a daily event to the phone's calendar, and the calendar
+// reminds. iPhone opens a calendar file (.ics) at once; elsewhere Google Calendar opens with the event
+// filled in, and the file stays one tap away. tools/site.mjs writes a file for each of these times.
+const REMIND_TIMES = ['08:00', '13:00', '19:00', '21:00'];
+const REMIND_TITLE = 'Бота · казахский на каждый день';
+const REMIND_TEXT = `Пара минут: разговор, повторение или фразы для малыша. Открыть Боту: ${SITE}`;
+const remindFile = (time) => `./remind-${time.replace(':', '')}.ics`;
+function remindGoogle(time) {
+  const [h, m] = time.split(':').map(Number);
+  const now = new Date();
+  const at = (min) => {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, h, m + min);
+    return `${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}T${pad2(d.getHours())}${pad2(d.getMinutes())}00`;
+  };
+  const q = new URLSearchParams({ action: 'TEMPLATE', text: REMIND_TITLE, details: REMIND_TEXT, dates: `${at(0)}/${at(10)}`, recur: 'RRULE:FREQ=DAILY' });
+  return `https://calendar.google.com/calendar/render?${q}`;
+}
+
+function RemindSheet({ was, onClose, onSet }) {
+  const [time, setTime] = useState(was || '19:00');
+  const box = useRef(null);
+  useSheet(box, onClose);
+  const ios = installHow() === 'ios';
+  // The link must still be on the page when the browser follows it: the sheet closes a moment later.
+  const chosen = () => setTimeout(() => onSet(time), 300);
+  const file = { href: remindFile(time), download: ios ? null : `bota-${time.replace(':', '')}.ics` };
+  const google = { href: remindGoogle(time), target: '_blank', rel: 'noopener' };
+  const [main, other] = ios ? [file, google] : [google, file];
+  return html`<div class="sheet-back" onClick=${onClose}>
+    <div class="sheet pad" ref=${box} role="dialog" aria-modal="true" aria-label="Напоминать каждый день" onClick=${(e) => e.stopPropagation()}>
+      <span class="sheet-grip" aria-hidden="true"></span>
+      <h2 class="h2" tabindex="-1">Напоминать каждый день</h2>
+      <p class="muted sm">В календарь телефона добавится событие на каждый день — календарь и напомнит.${was ? ' Прежнее напоминание останется: его можно удалить в календаре.' : ''}</p>
+      <div class="age-chips" role="group" aria-label="Время напоминания">${REMIND_TIMES.map((t) => html`
+        <button type="button" class=${'chip-btn' + (time === t ? ' sel' : '')} aria-pressed=${time === t} onClick=${() => setTime(t)}>${t}</button>`)}</div>
+      <a class="btn btn-primary btn-block" ...${main} onClick=${chosen}><${Icon} name="calendar" size=${20} /> Добавить в календарь</a>
+      <span class="done-links"><a class="link-btn" ...${other} onClick=${chosen}>${ios ? 'Google Календарь' : 'Файл для календаря'}</a>
+        <span aria-hidden="true">·</span><button type="button" class="link-btn" onClick=${onClose}>Не сейчас</button></span>
+    </div>
+  </div>`;
+}
+
+// Offered when the day's goal is reached, until a reminder is set; «Профиль» always has it.
+function RemindRow({ st, update }) {
+  const [open, setOpen] = useState(false);
+  if (!SITE_BUILD || st.seen.remind) return null;
+  return html`<button type="button" class="m-rule race-open" onClick=${() => setOpen(true)}>
+      <${Icon} name="calendar" size=${18} /> Напоминать каждый день</button>
+    ${open ? html`<${RemindSheet} onClose=${() => setOpen(false)} onSet=${(time) => { update((d) => { d.seen.remind = time; }); setOpen(false); }} />` : null}`;
 }
 
 /* ---------- dates and words ---------- */
@@ -327,7 +425,13 @@ function varsOf(st) {
 const fill = (s, v) => String(s).replace(/\{(\w+)\}/g, (m, k) => (v[k] !== undefined ? v[k] : m));
 const val = (x, v) => (typeof x === 'function' ? x(v) : x == null ? '' : fill(x, v));
 
+// Words of «Бәйге» mixed up in a race join the memory too, as cards «w:<word>».
+const WORDS = new Map(TOPICS.flatMap((t) => (t.words || []).map(([kk, ru]) => [kk, { kk, ru }])));
+const wordId = (kk) => `w:${kk}`;
+const isWord = (id) => id.startsWith('w:');
+
 function phrase(id) {
+  if (isWord(id)) return WORDS.get(id.slice(2)) || null;
   if (PHRASES[id]) return PHRASES[id];
   const rescue = RESCUE.find((x) => x.id === id);
   if (rescue) return rescue;
@@ -382,6 +486,21 @@ function nextDue(st) {
   return all.length ? Math.min(...all) : null;
 }
 
+const WORD_W = ['слово', 'слова', 'слов'];
+// «5 фраз», «3 фразы и 2 слова»: what a list of memory cards holds; acc — after «освежили».
+function cardsText(ids, acc) {
+  const words = ids.filter(isWord).length;
+  const phrases = ids.length - words;
+  const phr = acc ? ['фразу', 'фразы', 'фраз'] : PHR_W;
+  return [phrases ? `${phrases} ${plural(phrases, phr)}` : '', words ? `${words} ${plural(words, WORD_W)}` : ''].filter(Boolean).join(' и ');
+}
+// The verb after cardsText(): «1 фраза ждёт», «21 фраза ждёт», «3 фразы и 2 слова ждут».
+function agree(ids, one, many) {
+  const words = ids.filter(isWord).length;
+  if (words && words < ids.length) return many;
+  return plural(ids.length, [one, many, many]);
+}
+
 // The fact of today or of the past week; key tells one showing of it from another.
 function factFor(now = new Date()) {
   for (let back = 0; back < 7; back++) {
@@ -400,8 +519,10 @@ function SpeakBtn({ text, small, label = 'Прослушать' }) {
     onClick=${(e) => { e.stopPropagation(); voice.speak(text); }}><${SpeakerGlyph} size=${small ? 14 : 16} /></button>`;
 }
 
-function TabBar({ tab, go }) {
-  const items = [['home', 'Мой круг', 'circle'], ['phrasebook', 'Разговорник', 'chat'], ['baby', 'Малыш', 'heart'], ['profile', 'Профиль', 'user']];
+// «Малыш» is a tab for parents; for everyone else it is a row in the phrasebook.
+function TabBar({ tab, go, st }) {
+  const baby = st.profile.mode === 'baby' ? [['baby', 'Малыш', 'heart']] : [];
+  const items = [['home', 'Мой круг', 'circle'], ['phrasebook', 'Разговорник', 'chat'], ...baby, ['profile', 'Профиль', 'user']];
   return html`<nav class="tabbar pad" aria-label="Разделы">
     ${items.map(([id, label, icon]) => html`
       <button type="button" class=${'tab' + (tab === id ? ' on' : '')} aria-current=${tab === id ? 'page' : null} onClick=${() => go(id)}>
@@ -484,29 +605,22 @@ function Onboard({ st, update, done }) {
     ['baby', 'Говорить с малышом', 'фразы на каждый день для родителей'],
   ];
 
+  // Russian is the only language of explanations so far: there is nothing to choose yet, and Bota
+  // just says it. English and Chinese will bring the choice back as the first step.
   let panel;
   if (step === 0) {
-    panel = html`<div class="panel-in">
-      <div class="lang-grid">
-        <button type="button" class="lang on" aria-pressed="true"><span class="glyph">Ру</span><span><b>Русский</b><span class="muted sm">по-русски</span></span></button>
-        <button type="button" class="lang" disabled><span class="glyph">En</span><span><b>English</b><span class="muted sm">скоро</span></span></button>
-        <button type="button" class="lang" disabled><span class="glyph">中</span><span><b>中文</b><span class="muted sm">скоро</span></span></button>
-      </div>
-      <button type="button" class="btn btn-primary btn-block" onClick=${() => toStep(1)}>Дальше</button>
-    </div>`;
-  } else if (step === 1) {
-    panel = html`<form class="panel-in" onSubmit=${(e) => { e.preventDefault(); if (clean) toStep(2); }}>
+    panel = html`<form class="panel-in" onSubmit=${(e) => { e.preventDefault(); if (clean) toStep(1); }}>
       <label class="field-label" for="ob-name">Твоё имя</label>
       <input id="ob-name" class="field" type="text" autocomplete="given-name" maxlength="24" placeholder="Например, Мадияр"
         value=${name} onInput=${(e) => setName(e.target.value)} />
       <button type="submit" class="btn btn-primary btn-block" disabled=${!clean}>Дальше</button>
     </form>`;
-  } else if (step === 2) {
+  } else if (step === 1) {
     panel = html`<div class="panel-in">
       <div class="opts">${modes.map(([id, title, sub]) => html`
         <button type="button" class=${'opt mode' + (mode === id ? ' sel' : '')} aria-pressed=${mode === id} onClick=${() => setMode(id)}>
           <span>${title}</span><small>${sub}</small></button>`)}</div>
-      <button type="button" class="btn btn-primary btn-block" onClick=${() => toStep(3)}>Дальше</button>
+      <button type="button" class="btn btn-primary btn-block" onClick=${() => toStep(2)}>Дальше</button>
     </div>`;
   } else {
     panel = html`<div class="panel-in">
@@ -524,15 +638,11 @@ function Onboard({ st, update, done }) {
       <div class="msgs">
         <div class="ob-hello"><span class="hello" lang="kk">Сәлем!</span><span class="muted">Привет · Hello · 你好</span></div>
         <${BotaSays}><span class="kk" lang="kk">Мен Ботамын.</span><span class="b-tr">Я — Бота. Помогу заговорить по-казахски: через разговоры с людьми, без зубрёжки правил.</span><//>
-        <${BotaSays}>На каком языке тебе объяснять?<//>
+        <${BotaSays}>Объясняю по-русски, а говорить будем по-казахски. Как тебя зовут?<//>
         ${step > 0 ? html`
-          <div class="b b-me">Русский</div>
-          <${BotaSays}>Отлично! Объясняю по-русски, а говорить будем по-казахски.<//>
-          <${BotaSays}>Как тебя зовут?<//>` : null}
-        ${step > 1 ? html`
           <div class="b b-me">${clean}</div>
           <${BotaSays}><span class="kk" lang="kk">Танысқаныма қуаныштымын, ${clean}!</span><span class="b-tr">Это «рад знакомству». Что хочешь уметь?</span><//>` : null}
-        ${step > 2 ? html`
+        ${step > 1 ? html`
           <div class="b b-me">${modes.find((m) => m[0] === mode)[1]}</div>
           <${BotaSays}>Сколько минут в день будем заниматься?<//>` : null}
       </div>
@@ -575,7 +685,8 @@ const levelFrac = (st, level) => {
 };
 
 // One circle at a time: the people of the chosen level around the yurt. Earlier levels fold
-// into thin gold rings right around the yurt, the next level waits on the outer dashed ring.
+// into thin gold rings right around the yurt, the next level waits on the outer dashed ring: its
+// name runs along that ring, so that it does not read as the name of the person at the top.
 function CircleMap({ st, go, level }) {
   const lv = levelOf(level);
   const items = PLAYABLE.map((t, ti) => ({ t, ti })).filter((x) => x.t.level === level);
@@ -600,8 +711,9 @@ function CircleMap({ st, go, level }) {
             stroke-dasharray=${`${(len * f).toFixed(1)} ${len.toFixed(1)}`} transform="rotate(-90 171 171)"></circle>` : null}`;
       })}
       <g transform="translate(119 112) scale(1.3)"><${Yurt} /></g>
+      ${after ? html`<path id="ring2-top" d="M 9.5 171 A 161.5 161.5 0 0 1 332.5 171" fill="none"></path>
+        <text class="ring-name" text-anchor="middle"><textPath href="#ring2-top" startOffset="50%">${`${after.title} · ${after.id}${after.soon ? ' · скоро' : ''}`.toUpperCase()}</textPath></text>` : null}
     </svg>
-    ${after ? html`<span class="ring-label">${after.soon ? html`<${Icon} name="lock" size=${12} stroke=${2.6} />` : null} ${after.title} · ${after.id}</span>` : null}
     <span class="map-center"><b>${lv.title.toLowerCase()} · ${lv.id}</b><span>${doneTopics} из ${items.length} тем</span></span>
     ${items.map(({ t, ti }, i) => {
       const n = topicDone(st, t);
@@ -633,29 +745,48 @@ function NextCard({ st, go, level, setLevel }) {
         : html`<button type="button" class="btn btn-primary btn-block" onClick=${() => go('review')}>Освежить память</button>`}
     </section>`;
   }
-  const p = PEOPLE[nx.t.who];
   const first = Object.keys(st.done).length === 0;
   const kind = nx.c.kind;
-  const title = kind === 'pron' ? `Урок произношения: ${lc(nx.c.title)}`
-    : kind === 'write' ? `${p.name} ждёт твоего сообщения`
-    : kind === 'listen' ? `${p.name} хочет с тобой поговорить` : `${p.name} ждёт твоего ответа`;
+  const lesson = () => go('conv', { ti: nx.ti, ci: nx.ci });
+  if (reviewFirst(st)) {
+    const due = dueList(st);
+    return html`<section class="card next">
+      <span class="muted sm">сначала — память, потом ${isSkill(nx.c) ? 'урок' : 'разговор'}</span>
+      <b class="h3">${cardsText(due)} ${agree(due, 'ждёт', 'ждут')} повторения</b>
+      <button type="button" class="btn btn-primary btn-block" onClick=${() => go('review')}><${Icon} name="ornament" size=${20} /> Освежить память</button>
+      <span class="done-links"><button type="button" class="link-btn" onClick=${lesson}>${isSkill(nx.c) ? 'Сразу к уроку' : 'Сразу к разговору'}</button></span>
+    </section>`;
+  }
   return html`<section class="card next">
     <span class="muted sm">${nx.t.title.toLowerCase()} · урок ${nx.ci + 1} из ${nx.t.convs.length}</span>
-    <b class="h3">${title}</b>
-    <button type="button" class="btn btn-primary btn-block" onClick=${() => go('conv', { ti: nx.ti, ci: nx.ci })}>
+    <b class="h3">${nextTitle(nx)}</b>
+    <button type="button" class="btn btn-primary btn-block" onClick=${lesson}>
       <${Icon} name=${isSkill(nx.c) ? KINDS[kind].icon : 'chat'} size=${20} /> ${first ? 'Начать первый разговор' : isSkill(nx.c) ? 'Начать урок' : 'Продолжить разговор'}
     </button>
   </section>`;
 }
 
+// What the next lesson is, said as an invitation of its person.
+function nextTitle(nx) {
+  const p = PEOPLE[nx.t.who];
+  const kind = nx.c.kind;
+  return kind === 'pron' ? `Урок произношения: ${lc(nx.c.title)}`
+    : kind === 'write' ? `${p.name} ждёт твоего сообщения`
+    : kind === 'listen' ? `${p.name} хочет с тобой поговорить` : `${p.name} ждёт твоего ответа`;
+}
+
+// From the second day the day begins with memory: what fades comes before the next lesson, once a
+// day; the lesson stays one tap away.
+const reviewFirst = (st) => !st.reviews[dayKey()] && dueList(st).length > 0;
+
 function MemRow({ st, go }) {
-  const n = Object.keys(st.mem).length;
-  if (!n) return null;
-  const due = dueList(st).length;
+  const all = Object.keys(st.mem).filter((id) => phrase(id));
+  if (!all.length) return null;
+  const due = dueList(st);
   return html`<button type="button" class="mem-row" onClick=${() => go('review')}>
     <span class="mem-ic"><${Icon} name="ornament" size=${22} /></span>
-    <span class="grow">${due ? `Память: ${due} ${plural(due, PHR_W)} ${plural(due, ['тускнеет', 'тускнеют', 'тускнеют'])}` : `Память: ${n} ${plural(n, PHR_W)}, всё свежее`}</span>
-    ${due ? html`<span class="link">Освежить</span>` : null}
+    <span class="grow">${due.length ? `Память: ${cardsText(due)} ${agree(due, 'тускнеет', 'тускнеют')}` : `Память: ${cardsText(all)}, всё свежее`}</span>
+    ${due.length ? html`<span class="link">Освежить</span>` : null}
     <${Icon} name="next" size=${18} stroke=${2.4} />
   </button>`;
 }
@@ -666,7 +797,8 @@ let homeLevel = null;
 // The minutes chosen at the start make the daily goal: a lesson takes 1–2 minutes.
 const GOAL_LESSONS = { 5: 3, 10: 6, 15: 9 };
 const goalOf = (st) => GOAL_LESSONS[st.profile.minutes] || 6;
-const doneToday = (st) => Object.values(st.done).filter((d) => d === dayKey()).length;
+// Lessons done for the first time today, and memory reviews finished today: a review is a lesson too.
+const doneToday = (st) => Object.values(st.done).filter((d) => d === dayKey()).length + (st.reviews[dayKey()] || 0);
 
 function Home({ st, go, update }) {
   const v = varsOf(st);
@@ -685,11 +817,11 @@ function Home({ st, go, update }) {
           ${l.tab || l.title} <span>${l.id}</span></button>`)}</div>
       <${CircleMap} st=${st} go=${go} level=${level} />
       <${NextCard} st=${st} go=${go} level=${level} setLevel=${setLevel} />
-      <${MemRow} st=${st} go=${go} />
+      ${reviewFirst(st) && nextUp(st, level) ? null : html`<${MemRow} st=${st} go=${go} />`}
       <${RaceRow} st=${st} go=${go} />
       <${InstallRow} st=${st} onOpen=${install} />
     </div>
-    <${TabBar} tab="home" go=${go} />
+    <${TabBar} tab="home" go=${go} st=${st} />
     ${installSheet}
   </main>`;
 }
@@ -789,10 +921,17 @@ function Msg({ m, tr, hint, topic, onRule, onTr }) {
       voice.stop();
       mic.play(m.url);
     };
+    // The sample right under the learner's own recording: listen to both and compare.
+    const sample = () => {
+      if (liveRecording) liveRecording.cancel();
+      mic.stopPlaying();
+      voice.speak(m.kk);
+    };
     return html`<div class="b b-me b-voice"><span class="b-voice-row">
       <button type="button" class="vplay" aria-label="Послушать свою запись" onClick=${play}><${PlayGlyph} size=${12} /></button><${Wave} levels=${m.levels} />
       ${m.ms ? html`<span class="b-dur">0:${pad2(Math.max(1, Math.round(m.ms / 1000)))}</span>` : null}</span>
-      <span class="b-kk sm" lang="kk">${m.kk}</span></div>`;
+      <span class="b-kk sm" lang="kk">${m.kk}</span>
+      ${voice.canSay(m.kk) ? html`<span class="b-said-row"><button type="button" class="b-sample" onClick=${sample}>сравни с образцом</button></span>` : null}</div>`;
   }
   const other = m.who !== topic.who;
   return html`<div class="m-row left">
@@ -926,8 +1065,6 @@ let micTrouble = '';
 const micNoted = new Set();
 // The recording under way: ▶ on an older voice message calls it off before playing.
 let liveRecording = null;
-// The same app as a plain website, where the microphone works.
-const SITE = 'https://madikabdulovrec-cpu.github.io/bota/';
 function micState(st) {
   if (!st.settings.mic) return 'off';
   if (!mic.supported()) return 'unsupported';
@@ -936,7 +1073,7 @@ function micState(st) {
 }
 const MIC_NOTE = {
   paused: 'Запись выключена до конца урока.',
-  blocked: 'Здесь микрофон недоступен: запись работает в версии приложения на сайте.',
+  blocked: 'Здесь микрофон недоступен — запись работает в Боте по ссылке.',
   unsupported: 'Этот браузер не умеет записывать голос.',
   denied: 'Доступ к микрофону не разрешён — его можно включить в настройках браузера.',
   nomic: 'Микрофон не найден.',
@@ -945,11 +1082,15 @@ const MIC_NOTE = {
 // Say a phrase aloud. With a microphone the phrase is recorded and goes to the chat as a voice
 // message: the app hears whether the whole phrase was said, not how it sounded — that needs
 // speech recognition on a server. Without one, the learner says it and taps the button.
-function SayPanel({ step, v, tr, st, paused, onPause, onResume, onDone, onHint }) {
+// recall («Скажи голосом»): the phrase is said from memory, not read. The learner reads it and
+// listens, and as the recording starts the text hides behind its meaning; the voice message in the
+// chat then shows the phrase, with the sample next to the learner's own recording.
+function SayPanel({ step, v, tr, st, recall, paused, onPause, onResume, onDone, onHint }) {
   const kk = val(step.say, v);
   const syl = val(step.syl, v);
   // idle → opening (the browser turns the microphone on) → rec → idle
   const [stage, setStage] = useState('idle');
+  const [hidden, setHidden] = useState(false);
   const [meter, setMeter] = useState([]);
   // What went wrong with the last try; stays in the panel, where the learner looks.
   const [status, setStatus] = useState('');
@@ -978,6 +1119,7 @@ function SayPanel({ step, v, tr, st, paused, onPause, onResume, onDone, onHint }
     voice.hold(true);
     mic.stopPlaying();
     setStatus('');
+    if (recall) setHidden(true);
     const r = mic.record({
       maxMs: Math.min(15000, 3000 + syllables * 450),
       onStart: () => { if (alive.current) setStage('rec'); },
@@ -993,14 +1135,17 @@ function SayPanel({ step, v, tr, st, paused, onPause, onResume, onDone, onHint }
       voice.hold(false);
       if (alive.current) setStage('idle');
     };
+    // A try that did not work shows the phrase again, to read it once more.
+    const reveal = () => { if (alive.current) setHidden(false); };
     r.done.then((res) => {
       settle();
       const drop = () => { if (res.url) URL.revokeObjectURL(res.url); };
-      if (res.cancelled) return;
+      if (res.cancelled) { reveal(); return; }
       // The lesson was left meanwhile: nobody will play this recording.
       if (!alive.current) { drop(); return; }
       if (!res.heard) {
         drop();
+        reveal();
         setStatus('Не слышно. Поднеси телефон ближе и скажи фразу ещё раз.');
         onHint('Тебя не слышно. Поднеси телефон ближе и скажи фразу ещё раз.');
         return;
@@ -1009,6 +1154,7 @@ function SayPanel({ step, v, tr, st, paused, onPause, onResume, onDone, onHint }
       if (!asked.current && syllables >= 6 && res.voicedMs < syllables * 55) {
         asked.current = true;
         drop();
+        reveal();
         setStatus('Похоже, это не вся фраза. Скажи её целиком.');
         onHint('Похоже, это не вся фраза. Скажи её целиком.');
         return;
@@ -1016,6 +1162,7 @@ function SayPanel({ step, v, tr, st, paused, onPause, onResume, onDone, onHint }
       onDone(res);
     }, (e) => {
       settle();
+      reveal();
       if (!alive.current) return;
       let code = e && e.code;
       // In a frame (the claude.ai artifact) Safari refuses at once: the frame, not the learner, says no.
@@ -1035,8 +1182,12 @@ function SayPanel({ step, v, tr, st, paused, onPause, onResume, onDone, onHint }
     const note = MIC_NOTE[trouble] && (trouble === 'paused' || noteDue || failed) ? MIC_NOTE[trouble] : '';
     const again = trouble === 'paused' ? [['Включить запись', onResume]]
       : trouble === 'denied' || trouble === 'nomic' ? [['Попробовать снова', () => { micTrouble = ''; setFailed(false); redraw((n) => n + 1); }]] : [];
-    action = html`<button type="button" class="btn btn-primary btn-block" onClick=${() => onDone(null)}><${Icon} name="mic" size=${20} /> Я сказал(а) вслух</button>
-      ${note ? html`<span class="muted sm center" role="status">${note}${trouble === 'blocked' ? html` <a href=${SITE} target="_blank" rel="noopener">Открыть сайт</a>` : null}</span>` : null}
+    // From memory without a recording: first the text hides, then the learner says it and taps.
+    action = html`${recall && !hidden
+      ? html`<button type="button" class="btn btn-primary btn-block" onClick=${() => setHidden(true)}><${Icon} name="mic" size=${20} /> Сказать по памяти</button>`
+      : html`<button type="button" class="btn btn-primary btn-block" onClick=${() => onDone(null)}><${Icon} name="mic" size=${20} /> Я сказал(а) вслух</button>`}
+      ${note ? html`<span class="muted sm center" role="status">${trouble === 'blocked'
+        ? html`Здесь микрофон недоступен — <a href=${SITE} target="_blank" rel="noopener">открой Боту по ссылке</a>, там запись работает.` : note}</span>` : null}
       ${again.length ? links(again) : null}`;
   } else if (stage !== 'idle') {
     action = html`<div class="rec-row" role="status"><span class="rec-dot" aria-hidden="true"></span><span class="sm">${stage === 'opening' ? 'Включаю микрофон…' : 'Слушаю…'}</span>
@@ -1045,25 +1196,31 @@ function SayPanel({ step, v, tr, st, paused, onPause, onResume, onDone, onHint }
         ? html`<button type="button" class="btn btn-ghost btn-block" onClick=${() => live.current && live.current.cancel()}>Отмена</button>`
         : html`<button type="button" class="btn btn-primary btn-block" onClick=${() => live.current && live.current.stop()}><span class="stop-glyph" aria-hidden="true"></span> Готово</button>`}`;
   } else {
-    action = html`<button type="button" class="btn btn-primary btn-block" onClick=${start}><${Icon} name="mic" size=${20} /> Записать</button>
+    action = html`<button type="button" class="btn btn-primary btn-block" onClick=${start}><${Icon} name="mic" size=${20} /> ${recall ? 'Сказать по памяти' : 'Записать'}</button>
       ${status ? html`<span class="say-status" role="status">${status}</span>` : null}
       ${links([['Сейчас не могу говорить', onPause]])}`;
   }
 
   // While the microphone listens, the sample stays silent: it would be recorded as the learner's voice.
   const busy = stage !== 'idle';
+  const hint = recall ? (hidden ? '' : 'запомни — текст спрячется') : step.stress ? 'жирным — ударный слог' : 'можно по слогам';
   return html`<div class="panel-in">
-    <div class="say-head"><span class="eyebrow">СКАЖИ ВСЛУХ</span><span class="muted sm">${step.stress ? 'жирным — ударный слог' : 'можно по слогам'}</span></div>
-    <div class="say-card">
-      <span class="say-kk" lang="kk">${kk}</span>
-      <span class=${'say-syl' + (step.stress ? ' big' : '')}>${step.stress ? html`<${Syllables} text=${syl} />` : syl}</span>
-      ${tr ? html`<span class="say-ru">«${val(step.ru, v)}»</span>` : null}
-      ${voice.canSay(kk)
-        ? html`<div class="say-ctl">
-            <button type="button" class="ctl" disabled=${busy} onClick=${() => voice.speak(kk)}><${SpeakerGlyph} size=${16} /> Послушать</button>
-            <button type="button" class="ctl" disabled=${busy} onClick=${() => voice.slow(kk)}>Медленно</button></div>`
-        : html`<span class="muted sm">В этом браузере нет казахского голоса — прочитай по слогам.</span>`}
-    </div>
+    <div class="say-head"><span class="eyebrow">${recall ? 'СКАЖИ ПО ПАМЯТИ' : 'СКАЖИ ВСЛУХ'}</span>${hint ? html`<span class="muted sm">${hint}</span>` : null}</div>
+    ${hidden ? html`<div class="say-card">
+        <span class="say-mean">«${val(step.ru, v)}»</span>
+        <span class="muted sm">Скажи это по-казахски, не глядя на текст.</span>
+        <button type="button" class="link-btn peek" onClick=${() => setHidden(false)}>Подсмотреть</button>
+      </div>`
+      : html`<div class="say-card">
+        <span class="say-kk" lang="kk">${kk}</span>
+        <span class=${'say-syl' + (step.stress ? ' big' : '')}>${step.stress ? html`<${Syllables} text=${syl} />` : syl}</span>
+        ${tr ? html`<span class="say-ru">«${val(step.ru, v)}»</span>` : null}
+        ${voice.canSay(kk)
+          ? html`<div class="say-ctl">
+              <button type="button" class="ctl" disabled=${busy} onClick=${() => voice.speak(kk)}><${SpeakerGlyph} size=${16} /> Послушать</button>
+              <button type="button" class="ctl" disabled=${busy} onClick=${() => voice.slow(kk)}>Медленно</button></div>`
+          : html`<span class="muted sm">В этом браузере нет казахского голоса — прочитай по слогам.</span>`}
+      </div>`}
     ${action}
   </div>`;
 }
@@ -1184,31 +1341,66 @@ function TypePanel({ step, v, auto, onDone, onHint }) {
 }
 
 // One main action — the next lesson; going home and repeating stay in one line of links.
-function DonePanel({ st, conv, ti, ci, result, v, go }) {
+// The lesson or review that reaches the day's goal closes the day: a new уық in the шаңырақ of the
+// month and what waits tomorrow, then «Готово на сегодня».
+function DayHead({ st }) {
+  const now = new Date();
+  const streak = streakOf(st.days);
+  return html`<div class="done-head">
+    <${Shanyrak} year=${now.getFullYear()} month=${now.getMonth()} days=${st.days} today=${now.getDate()} size=${52} fresh />
+    <span class="grow"><b class="h3">Цель дня выполнена!</b><span class="gold-text sm">Серия ${streak} ${plural(streak, DAY_W)}: в шаңыраке новая жердь-уық</span></span>
+  </div>`;
+}
+
+// Tomorrow: the next lesson, and the memory that fades by then.
+function Tomorrow({ st }) {
+  const nx = nextUp(st);
+  const due = dueList(st, Date.now() + fsrs.DAY);
+  const parts = [nx ? nextTitle(nx) : '', due.length ? `${cardsText(due)} освежить` : ''].filter(Boolean);
+  if (!parts.length) return null;
+  return html`<span class="mem-note"><${Icon} name="ornament" size=${20} />Завтра: ${parts.join(' · ')}</span>`;
+}
+
+function DonePanel({ st, update, conv, ti, ci, result, v, go }) {
   const streak = streakOf(st.days);
   // The third lesson of a topic, done for the first time, opens the race of its words.
   const topic = PLAYABLE[ti];
   const opened = result.first && ci === 2 && topic.words && topic.words.length;
   const nx = nextUp(st, PLAYABLE[ti].level) || nextUp(st);
   const nextText = nx ? (nx.ti === ti ? `Дальше: ${KINDS[nx.c.kind].label.toLowerCase()}` : `Новая тема: ${nx.t.title.toLowerCase()}`) : null;
+  const toNext = () => (nx ? go('conv', { ti: nx.ti, ci: nx.ci }) : go('home'));
   const note = result.added ? `${result.added} ${plural(result.added, PHR_W)} — в памяти, повторим завтра`
     : conv.kind === 'pron' ? 'Повторяй эти слова вслух — так звук закрепится'
     : conv.kind === 'write' ? `Без подсказки: ${result.clean} из ${result.typed}`
     : 'Фразы уже в памяти — повторим по графику';
+  const cando = html`<div class="cando"><span class="eyebrow">ТЕПЕРЬ ТЫ УМЕЕШЬ</span>
+    ${conv.can.map(([ru, kk]) => html`<span class="cando-row"><span class="tick"><${Icon} name="check" size=${12} stroke=${3.4} /></span>
+      <span>${ru} — <b class="kk" lang="kk">${fill(kk, v)}</b></span></span>`)}</div>`;
+  const race = opened ? html`<button type="button" class="m-rule race-open" onClick=${() => go('race', { ti })}>
+    <${Icon} name="flag" size=${18} /><span>Открылась <span lang="kk">бәйге</span> — скачки на ${topic.words.length} словах темы</span></button>` : null;
+  const again = html`<button type="button" class="link-btn" onClick=${() => go('conv', { ti, ci, k: Date.now() })}>Пройти ещё раз</button>`;
+  if (result.closed) {
+    return html`<div class="panel-in done">
+      <${DayHead} st=${st} />
+      ${cando}
+      <${Tomorrow} st=${st} />
+      ${race}
+      <${RemindRow} st=${st} update=${update} />
+      <button type="button" class="btn btn-primary btn-block" onClick=${() => go('home')}>Готово на сегодня</button>
+      <span class="done-links">${nx ? html`<button type="button" class="link-btn" onClick=${toNext}>Ещё урок</button><span aria-hidden="true">·</span>` : null}${again}</span>
+    </div>`;
+  }
   return html`<div class="panel-in done">
     <div class="done-head"><${Sun} size=${34} />
       <span class="grow"><b class="h3">${isSkill(conv) ? 'Урок окончен!' : 'Разговор окончен!'}</b><span class="gold-text sm">Сегодня ✓ · серия ${streak} ${plural(streak, DAY_W)}</span></span>
     </div>
-    <div class="cando"><span class="eyebrow">ТЕПЕРЬ ТЫ УМЕЕШЬ</span>
-      ${conv.can.map(([ru, kk]) => html`<span class="cando-row"><span class="tick"><${Icon} name="check" size=${12} stroke=${3.4} /></span>
-        <span>${ru} — <b class="kk" lang="kk">${fill(kk, v)}</b></span></span>`)}</div>
+    ${cando}
     <span class="mem-note"><${Icon} name=${conv.kind === 'pron' ? 'sound' : conv.kind === 'write' ? 'edit' : 'ornament'} size=${20} />${note}</span>
-    ${opened ? html`<button type="button" class="m-rule race-open" onClick=${() => go('race', { ti })}>
-      <${Icon} name="flag" size=${18} /> Открылась <span lang="kk">бәйге</span> — скачки на ${topic.words.length} словах темы</button>` : null}
-    <button type="button" class="btn btn-primary btn-block" onClick=${() => (nx ? go('conv', { ti: nx.ti, ci: nx.ci }) : go('home'))}>${nx ? nextText : 'Вернуться в «Мой круг»'}</button>
+    ${race}
+    <button type="button" class="btn btn-primary btn-block" onClick=${toNext}>${nx ? nextText : 'Вернуться в «Мой круг»'}</button>
     <span class="done-links">
       ${nx ? html`<button type="button" class="link-btn" onClick=${() => go('home')}>В «Мой круг»</button><span aria-hidden="true">·</span>` : null}
-      <button type="button" class="link-btn" onClick=${() => go('conv', { ti, ci, k: Date.now() })}>Пройти ещё раз</button>
+      ${again}
     </span>
   </div>`;
 }
@@ -1251,12 +1443,16 @@ function ConvScreen({ st, update, ti, ci, go }) {
     const cur = latest(stRef.current);
     const now = Date.now();
     const added = (conv.teaches || []).filter((id) => !cur.mem[id] && phrase(id));
+    const first = !cur.done[conv.id];
+    // A lesson done for the first time counts toward the day's goal; the one that reaches it closes the day.
+    const before = doneToday(cur);
+    const closed = first && before < goalOf(cur) && before + 1 >= goalOf(cur);
     update((d) => {
       if (!d.done[conv.id]) d.done[conv.id] = dayKey();
       d.days[dayKey()] = true;
       added.forEach((id) => { if (!d.mem[id]) d.mem[id] = fsrs.review(null, 2, now); });
     });
-    setResult({ added: added.length, typed: typed.current.n, clean: typed.current.clean, first: !cur.done[conv.id] });
+    setResult({ added: added.length, typed: typed.current.n, clean: typed.current.clean, first, closed });
   }
 
   // Lines of the other person come one by one; while a rule is open the conversation waits.
@@ -1341,7 +1537,7 @@ function ConvScreen({ st, update, ti, ci, go }) {
 
   let panel = null;
   if (result) {
-    panel = html`<${DonePanel} st=${st} conv=${conv} ti=${ti} ci=${ci} result=${result} v=${v} go=${go} />`;
+    panel = html`<${DonePanel} st=${st} update=${update} conv=${conv} ti=${ti} ci=${ci} result=${result} v=${v} go=${go} />`;
   } else if (step && isTurn(step) && !typing) {
     if (step.check) panel = html`<${CheckPanel} key=${pos} step=${step} listen=${conv.kind === 'listen'} auto=${st.settings.voice} onHint=${hint} onDone=${() => advance([])} />`;
     else if (step.pick) {
@@ -1357,7 +1553,7 @@ function ConvScreen({ st, update, ti, ci, go }) {
       panel = html`<${BuildPanel} key=${pos} step=${step} v=${v} tr=${task} onHint=${hint}
         onDone=${() => advance([{ k: 'me', kk: val(step.text, v), ru: val(step.ru, v) }], { rule: step.rule, word: step.word })} />`;
     } else if (step.say) {
-      panel = html`<${SayPanel} key=${pos} step=${step} v=${v} tr=${task} st=${st} paused=${micPaused} onHint=${hint}
+      panel = html`<${SayPanel} key=${pos} step=${step} v=${v} tr=${task} st=${st} recall=${conv.kind === 'speak'} paused=${micPaused} onHint=${hint}
         onPause=${() => setMicPaused(true)} onResume=${() => setMicPaused(false)}
         onDone=${(res) => {
           if (res && res.url) recordings.current.push(res.url);
@@ -1398,7 +1594,7 @@ function ConvScreen({ st, update, ti, ci, go }) {
     </header>
     <div class="scroll chat pad" ref=${scroller}>
       <div class="msgs" role="log" aria-live="polite">
-        ${showNoVoice ? html`<div class="banner"><span>Здесь фразы пока без звука: в этом браузере нет казахского голоса. Со звуком они работают <a href=${SITE} target="_blank" rel="noopener">на сайте приложения</a> и в Microsoft Edge.</span>
+        ${showNoVoice ? html`<div class="banner"><span>Здесь фразы пока без звука: в этом браузере нет казахского голоса. Со звуком они работают <a href=${SITE} target="_blank" rel="noopener">в Боте по ссылке</a> и в Microsoft Edge.</span>
           <button type="button" class="btn-chip" onClick=${() => update((d) => { d.seen.noVoice = true; })}>Понятно</button></div>` : null}
         <span class="conv-kind">${KINDS[conv.kind].label} · ${conv.title}</span>
         ${log.map((m, i) => html`<${Msg} key=${i} m=${m} tr=${tr || !!opened[i]} hint=${i === firstLine && !tr && !st.seen.trTap}
@@ -1451,30 +1647,7 @@ function RuleBody({ r }) {
 function RuleSheet({ id, onClose }) {
   const r = RULES.find((x) => x.id === id);
   const box = useRef(null);
-  useEffect(() => {
-    const back = document.activeElement;
-    const title = box.current && box.current.querySelector('h2');
-    if (title) title.focus();
-    const onKey = (e) => {
-      if (e.key === 'Escape') onClose();
-      if (e.key !== 'Tab' || !box.current) return;
-      const items = [...box.current.querySelectorAll('button:not([disabled])')];
-      if (!items.length) return;
-      const active = document.activeElement;
-      if (e.shiftKey && (active === items[0] || active === title || !box.current.contains(active))) {
-        e.preventDefault();
-        items[items.length - 1].focus();
-      } else if (!e.shiftKey && (active === items[items.length - 1] || !box.current.contains(active))) {
-        e.preventDefault();
-        items[0].focus();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      if (back && back.focus && document.contains(back)) back.focus();
-    };
-  }, []);
+  useSheet(box, onClose);
   if (!r) return null;
   return html`<div class="sheet-back" onClick=${onClose}>
     <div class="sheet pad" ref=${box} role="dialog" aria-modal="true" aria-label=${r.title} onClick=${(e) => e.stopPropagation()}>
@@ -1520,77 +1693,109 @@ function RulesScreen({ st, update, go, back }) {
 const PHRASE_LEVEL = {};
 TOPICS.forEach((t) => (t.convs || []).forEach((c) => (c.teaches || []).forEach((id) => { PHRASE_LEVEL[id] = PHRASE_LEVEL[id] || t.level; })));
 
-// Wrong options: phrases the learner has met, from the same level and close in length, so the
-// answer cannot be guessed by length; never a phrase with the same meaning, which would also be right.
-function makeOptions(id, st) {
-  const v = varsOf(st);
-  const kkOf = (x) => fill(phrase(x).kk, v);
-  const ruOf = (x) => fill(phrase(x).ru, v).toLowerCase().replace(/[^а-яё]/g, '');
-  const right = kkOf(id);
-  // Phrases that differ only in punctuation or case are the same option.
-  const same = (a, b) => normType(a) === normType(b);
-  const fits = (x) => x !== id && phrase(x) && !same(kkOf(x), right) && ruOf(x) !== ruOf(id);
-  const level = PHRASE_LEVEL[id];
-  const learned = Object.keys(st.mem).filter(fits);
-  const course = Object.keys(PHRASES).filter(fits);
-  const closest = (list) => shuffle(list).sort((a, b) => Math.abs(kkOf(a).length - right.length) - Math.abs(kkOf(b).length - right.length)).slice(0, 4);
-  const out = [right];
-  for (const list of [learned.filter((x) => PHRASE_LEVEL[x] === level), course.filter((x) => PHRASE_LEVEL[x] === level), learned, course]) {
-    for (const x of shuffle(closest(list))) {
-      const kk = kkOf(x);
-      if (!out.some((o) => same(o, kk))) out.push(kk);
-      if (out.length === 3) return shuffle(out);
-    }
-  }
-  return shuffle(out);
-}
+// How it went, in the four grades of FSRS; each button says when the card comes back.
+const GRADES = [[1, 'Не вспомнил(а)'], [2, 'С трудом'], [3, 'Вспомнил(а)'], [4, 'Легко']];
 
+// Recall, then check yourself: the meaning comes first, the learner says the phrase (aloud or to
+// themselves), opens the answer and rates how it went. Picking one of three options would only
+// test recognition, and a few lucky guesses sent a phrase away for months.
 function Review({ st, update, go }) {
   const [queue] = useState(() => dueList(st).slice(0, 10));
   const [i, setI] = useState(0);
-  const [answer, setAnswer] = useState(null);
+  const [open, setOpen] = useState(false);
   const [okCount, setOkCount] = useState(0);
+  // This review reached the day's goal.
+  const [closed, setClosed] = useState(false);
+  const lastTap = useRef(0);
+  const bottom = useRef(null);
   const id = queue[i];
-  const opts = useMemo(() => (id ? makeOptions(id, st) : []), [id]);
   const v = varsOf(st);
+  // Keyboard users stay on the buttons of the moment: «Показать ответ», then the grades. Not on the
+  // first card, which the page has only just opened with.
+  useEffect(() => {
+    if (i === 0 && !open) return;
+    const first = bottom.current && bottom.current.querySelector('button');
+    if (first) first.focus({ preventScroll: true });
+  }, [i, open]);
   const head = html`<${TopBar} title="Освежить память" sub=${queue.length && i < queue.length ? `${i + 1} из ${queue.length}` : 'орнамент памяти'} onBack=${() => go('home')} backLabel="Вернуться в «Мой круг»" />`;
 
   if (!queue.length || i >= queue.length) {
     const nd = nextDue(st);
+    const nx = nextUp(st);
+    const toNext = () => go('conv', { ti: nx.ti, ci: nx.ci });
+    const links = (items) => html`<span class="done-links">${items.map(([label, on], k) => html`${k ? html`<span aria-hidden="true">·</span>` : null}<button type="button" class="link-btn" onClick=${on}>${label}</button>`)}</span>`;
+    if (closed) {
+      const now = new Date();
+      return html`<main class="screen">${head}
+        <div class="scroll pad review-end">
+          <${Shanyrak} year=${now.getFullYear()} month=${now.getMonth()} days=${st.days} today=${now.getDate()} size=${104} fresh />
+          <b class="h2">Цель дня выполнена!</b>
+          <span class="gold-text sm">Серия ${streakOf(st.days)} ${plural(streakOf(st.days), DAY_W)}: в шаңыраке новая жердь-уық</span>
+          <span class="muted">Освежили ${cardsText(queue, true)}: вспомнил(а) ${okCount} из ${queue.length}</span>
+          <${Tomorrow} st=${st} />
+          <${RemindRow} st=${st} update=${update} />
+        </div>
+        <div class="bottom pad"><button type="button" class="btn btn-primary btn-block" onClick=${() => go('home')}>Готово на сегодня</button>
+          ${nx ? links([['Ещё урок', toNext]]) : null}</div>
+      </main>`;
+    }
+    // After the memory, the next lesson: the day began with the review, the lesson goes on from it.
+    const onward = queue.length && nx;
     return html`<main class="screen">${head}
       <div class="scroll pad review-end">
         <span class="orn-big"><${Icon} name="ornament" size=${56} stroke=${1.6} /></span>
-        <b class="h2">${queue.length ? `Освежили ${queue.length} ${plural(queue.length, ['фразу', 'фразы', 'фраз'])}` : 'Всё свежее'}</b>
-        ${queue.length ? html`<span class="muted">Вспомнил(а) сразу: ${okCount} из ${queue.length}</span>` : null}
+        <b class="h2">${queue.length ? `Освежили ${cardsText(queue, true)}` : 'Всё свежее'}</b>
+        ${queue.length ? html`<span class="muted">Вспомнил(а): ${okCount} из ${queue.length}</span>` : null}
         ${nd ? html`<span class="muted">Следующее повторение — ${whenText(nd)}</span>` : html`<span class="muted">Пройди разговор — и фразы попадут в память.</span>`}
+        ${onward ? html`<span class="muted sm">Дальше: ${lc(nextTitle(nx))}</span>` : null}
       </div>
-      <div class="bottom pad"><button type="button" class="btn btn-primary btn-block" onClick=${() => go('home')}>Вернуться в «Мой круг»</button></div>
+      <div class="bottom pad">${onward
+        ? html`<button type="button" class="btn btn-primary btn-block" onClick=${toNext}>${isSkill(nx.c) ? 'Начать урок' : 'Продолжить разговор'}</button>
+          ${links([['В «Мой круг»', () => go('home')]])}`
+        : html`<button type="button" class="btn btn-primary btn-block" onClick=${() => go('home')}>Вернуться в «Мой круг»</button>`}</div>
     </main>`;
   }
 
   const ph = phrase(id);
   const right = fill(ph.kk, v);
-  const choose = (kk) => {
-    if (answer) return;
-    const ok = kk === right;
-    setAnswer({ kk, ok });
-    if (ok) setOkCount((n) => n + 1);
+  const reveal = () => {
+    setOpen(true);
     if (st.settings.voice) voice.speak(right);
-    update((d) => { d.mem[id] = fsrs.review(d.mem[id], ok ? 3 : 1); d.days[dayKey()] = true; });
   };
+  const rate = (g) => {
+    // A second tap on the same spot must not rate the next card as well.
+    if (Date.now() - lastTap.current < 350) return;
+    lastTap.current = Date.now();
+    // The review counts toward the day's goal once its last card is rated.
+    const last = i === queue.length - 1;
+    const cur = latest(st);
+    const before = doneToday(cur);
+    update((d) => {
+      d.mem[id] = fsrs.review(d.mem[id], g);
+      d.days[dayKey()] = true;
+      if (last) d.reviews[dayKey()] = (d.reviews[dayKey()] || 0) + 1;
+    });
+    // «С трудом» is remembered too: only «Не вспомнил(а)» is a lapse for FSRS.
+    if (g >= 2) setOkCount((n) => n + 1);
+    if (last && before < goalOf(cur) && before + 1 >= goalOf(cur)) setClosed(true);
+    voice.stop();
+    setOpen(false);
+    setI(i + 1);
+  };
+  const when = (g) => whenText(fsrs.review(st.mem[id], g).due);
   return html`<main class="screen">${head}
     <div class="scroll pad review">
       <div class="rev-card">
-        <span class="eyebrow">КАК СКАЗАТЬ ПО-КАЗАХСКИ?</span>
+        <span class="eyebrow">${isWord(id) ? 'КАК ЭТО ПО-КАЗАХСКИ?' : 'КАК СКАЗАТЬ ПО-КАЗАХСКИ?'}</span>
         <b class="rev-ru">${fill(ph.ru, v)}</b>
+        ${open ? html`<span class="rev-kk"><b lang="kk">${right}</b><${SpeakBtn} text=${right} /></span>` : null}
       </div>
-      <div class="opts">${opts.map((kk) => {
-        const state = answer ? (kk === right ? ' good' : kk === answer.kk ? ' bad' : ' dim') : '';
-        return html`<button type="button" class=${'opt kk' + state} onClick=${() => choose(kk)}><span lang="kk">${kk}</span></button>`;
-      })}</div>
-      ${answer ? html`<p class="rev-note" role="status"><b>${answer.ok ? 'Помнишь!' : 'Ничего страшного.'}</b> ${answer.ok ? `Следующий раз — ${whenText(st.mem[id] && st.mem[id].due)}.` : 'Верный ответ — в сплошной рамке. Повторим завтра.'}</p>` : null}
+      <p class="muted sm center" role="status">${open ? 'Как вспомнилось?' : 'Вспомни и скажи вслух — потом проверь себя.'}</p>
     </div>
-    <div class="bottom pad"><button type="button" class="btn btn-primary btn-block" disabled=${!answer} onClick=${() => { setAnswer(null); setI(i + 1); }}>Дальше</button></div>
+    <div class="bottom pad" ref=${bottom}>${open
+      ? html`<div class="grades" role="group" aria-label="Как вспомнилось">${GRADES.map(([g, label]) => html`
+          <button type="button" class="grade" onClick=${() => rate(g)}><b>${label}</b><span class="muted sm">${when(g)}</span></button>`)}</div>`
+      : html`<button type="button" class="btn btn-primary btn-block" onClick=${reveal}>Показать ответ</button>`}</div>
   </main>`;
 }
 
@@ -1830,13 +2035,17 @@ function RaceScreen({ st, update, go, ti, quick, setup, duel: duelIn }) {
       return;
     }
     const miss = missed.current;
+    const now = Date.now();
     update((d) => {
       if (!paused && (!d.race.best[key] || ms < d.race.best[key])) d.race.best[key] = ms;
       d.race.runs = (d.race.runs || 0) + 1;
-      // A word mixed up comes back in the next races until it is matched right away.
+      // A word mixed up comes back in the next races until it is matched right away. It also joins
+      // the memory as forgotten: the review asks it tomorrow, along with the phrases.
       set.forEach((w, i) => {
-        if (miss.has(i)) d.race.miss[w.kk] = (d.race.miss[w.kk] || 0) + 1;
-        else if (d.race.miss[w.kk] > 1) d.race.miss[w.kk] -= 1;
+        if (miss.has(i)) {
+          d.race.miss[w.kk] = (d.race.miss[w.kk] || 0) + 1;
+          d.mem[wordId(w.kk)] = fsrs.review(d.mem[wordId(w.kk)], 1, now);
+        } else if (d.race.miss[w.kk] > 1) d.race.miss[w.kk] -= 1;
         else delete d.race.miss[w.kk];
       });
       d.days[dayKey()] = true;
@@ -2003,7 +2212,7 @@ function RaceScreen({ st, update, go, ti, quick, setup, duel: duelIn }) {
       <span class="race-cheer"><b lang="kk">${won ? 'Жарайсың!' : 'Тағы бір рет!'}</b> ${won ? '— молодец!' : '— ещё разок!'}</span>
       <b class="race-time">${raceTime(r.ms)}</b>
       <span class="sm">${status}${r.fines ? ` · ${finesOf(r.fines)}` : ''}</span>
-      ${r.missed.length ? html`<section class="race-miss"><span class="eyebrow">ЭТИ ПАРЫ СТОИТ ПОВТОРИТЬ</span>
+      ${r.missed.length ? html`<section class="race-miss"><span class="eyebrow">ЭТИ СЛОВА — В ПАМЯТИ, ПОВТОРИМ ЗАВТРА</span>
         ${r.missed.slice(0, 6).map((i) => html`<div class="ex-row"><span class="grow"><b class="kk" lang="kk">${set[i].kk}</b><span class="muted sm">${set[i].ru}</span></span><${SpeakBtn} text=${set[i].kk} small /></div>`)}
       </section>` : null}
     </div>`;
@@ -2095,8 +2304,13 @@ function Phrasebook({ st, update, go }) {
         <span class="grow"><b>Как устроен казахский</b><span class="muted sm">15 коротких правил · по желанию</span></span>
         <${Icon} name="next" size=${20} stroke=${2.2} />
       </button>
+      ${st.profile.mode === 'baby' ? null : html`<button type="button" class="rules-link" onClick=${() => go('baby')}>
+        <span class="rl-ic"><${Icon} name="heart" size=${20} /></span>
+        <span class="grow"><b>Малыш</b><span class="muted sm">фразы для родителей: купание, еда, прогулка, сон</span></span>
+        <${Icon} name="next" size=${20} stroke=${2.2} />
+      </button>`}
     </div>
-    <${TabBar} tab="phrasebook" go=${go} />
+    <${TabBar} tab="phrasebook" go=${go} st=${st} />
   </main>`;
 }
 
@@ -2158,7 +2372,7 @@ function Baby({ st, update, go }) {
           <button type="submit" class="btn btn-primary btn-block" disabled=${!clean}>Готово</button>
         </div>
       </form>
-      <${TabBar} tab="baby" go=${go} />
+      <${TabBar} tab=${st.profile.mode === 'baby' ? 'baby' : 'phrasebook'} go=${go} st=${st} />
     </main>`;
   }
 
@@ -2202,7 +2416,7 @@ function Baby({ st, update, go }) {
       <${InstallRow} st=${st} onOpen=${install} />
       <p class="baby-tip"><${Bota} size=${26} /><span>Говорите сами, своим голосом: малыш учится у живого человека, а не у экрана.</span></p>
     </div>
-    <${TabBar} tab="baby" go=${go} />
+    <${TabBar} tab=${st.profile.mode === 'baby' ? 'baby' : 'phrasebook'} go=${go} st=${st} />
     ${installSheet}
   </main>`;
 }
@@ -2256,10 +2470,12 @@ function Profile({ st, update, go }) {
   const clean = cap(name.trim().replace(/\s+/g, ' ').slice(0, 24));
   const babyClean = cap(babyName.trim().replace(/\s+/g, ' ').slice(0, 24));
   const babyAgeLabel = (BABY_AGES.find((a) => a[0] === st.baby.age) || BABY_AGES[1])[1];
-  const memCount = Object.keys(st.mem).length;
+  const memIds = Object.keys(st.mem).filter((id) => phrase(id));
+  const memCount = memIds.length;
   const goal = goalOf(st);
   const hasVoice = voice.available();
   const micUsable = mic.supported() && mic.allowed();
+  const [remind, setRemind] = useState(false);
   // Moving the progress: a file saved here opens on another phone or in another browser.
   const fileInput = useRef(null);
   const [transfer, setTransfer] = useState('');
@@ -2288,8 +2504,8 @@ function Profile({ st, update, go }) {
       Object.assign(d, next);
     });
     const lessons = ALL_CONVS.filter((x) => merged.done[x.c.id]).length;
-    const phrases = Object.keys(merged.mem).length;
-    setTransfer(`Прогресс перенесён: ${lessons} ${plural(lessons, LESSON_W)}, ${phrases} ${plural(phrases, PHR_W)} в памяти.`);
+    const cards = Object.keys(merged.mem).filter((id) => phrase(id));
+    setTransfer(`Прогресс перенесён: ${lessons} ${plural(lessons, LESSON_W)}${cards.length ? `, ${cardsText(cards)} в памяти` : ''}.`);
   };
   return html`<main class="screen">
     <div class="scroll pad profile">
@@ -2307,7 +2523,7 @@ function Profile({ st, update, go }) {
       </section>
       <section class="stats">
         <div class="stat"><b>${convDone}<small> / ${ALL_CONVS.length}</small></b><span>уроков</span></div>
-        <div class="stat"><b>${memCount}</b><span>${plural(memCount, ['фраза в памяти', 'фразы в памяти', 'фраз в памяти'])}</span></div>
+        <div class="stat"><b>${memCount}</b><span>${memIds.some(isWord) ? 'в памяти: фразы и слова' : plural(memCount, ['фраза в памяти', 'фразы в памяти', 'фраз в памяти'])}</span></div>
         <div class="stat"><b>${rulesRead}</b><span>${plural(rulesRead, ['правило прочитано', 'правила прочитано', 'правил прочитано'])}</span></div>
       </section>
       <section class="card settings">
@@ -2327,6 +2543,10 @@ function Profile({ st, update, go }) {
             <button type="button" class=${'btn-chip' + (st.profile.minutes === m ? ' primary' : '')} aria-pressed=${st.profile.minutes === m}
               onClick=${() => update((d) => { d.profile.minutes = m; })}>${m}</button>`)}</span>
         </div>
+        ${SITE_BUILD ? html`<div class="set-row">
+          <span class="grow"><b>Напоминание</b><span class="muted sm">${st.seen.remind ? `каждый день в ${st.seen.remind}, в календаре телефона` : 'через календарь телефона'}</span></span>
+          <button type="button" class="btn-chip" onClick=${() => setRemind(true)}>${st.seen.remind ? 'Изменить' : 'Настроить'}</button>
+        </div>` : null}
         ${st.baby.name ? html`<div class="set-row">
           <span class="grow"><b>Малыш</b>${babyEdit ? null : html`<span class="muted sm">${st.baby.name} · ${babyAgeLabel}</span>`}</span>
           ${babyEdit ? null : html`<button type="button" class="btn-chip" onClick=${() => { setBabyName(st.baby.name); setBabyAge(st.baby.age || '1-2'); setBabyEdit(true); }}>Изменить</button>`}
@@ -2339,13 +2559,13 @@ function Profile({ st, update, go }) {
           <button type="submit" class="btn-chip primary" disabled=${!babyClean}>Сохранить</button>
           <button type="button" class="btn-chip" onClick=${() => setBabyEdit(false)}>Отмена</button></form>` : null}
         <div class="set-row">
-          <span class="grow"><b>Озвучка реплик</b><span class="muted sm">${!hasVoice ? html`здесь нет казахского голоса — он есть <a href=${SITE} target="_blank" rel="noopener">на сайте</a> и в Microsoft Edge`
+          <span class="grow"><b>Озвучка реплик</b><span class="muted sm">${!hasVoice ? html`здесь нет казахского голоса — он есть <a href=${SITE} target="_blank" rel="noopener">в Боте по ссылке</a> и в Microsoft Edge`
             : voice.recorded() ? 'записанные фразы' : `голос: ${voice.name()}`}</span></span>
           <${Toggle} on=${st.settings.voice && hasVoice} disabled=${!hasVoice} label="Озвучка реплик" onChange=${(on) => update((d) => { d.settings.voice = on; })} />
         </div>
         <div class="set-row">
           <span class="grow"><b>Запись голоса</b><span class="muted sm">${micUsable ? 'в заданиях «Скажи вслух»; запись остаётся на телефоне'
-            : html`здесь микрофон недоступен — запись работает <a href=${SITE} target="_blank" rel="noopener">на сайте</a>`}</span></span>
+            : html`здесь микрофон недоступен — запись работает <a href=${SITE} target="_blank" rel="noopener">в Боте по ссылке</a>`}</span></span>
           <${Toggle} on=${st.settings.mic && micUsable} disabled=${!micUsable} label="Запись голоса"
             onChange=${(on) => { if (on) micTrouble = ''; update((d) => { d.settings.mic = on; }); }} />
         </div>
@@ -2354,8 +2574,8 @@ function Profile({ st, update, go }) {
           <${Toggle} on=${st.settings.trAuto} label="Перевод сразу" onChange=${(on) => update((d) => { d.settings.trAuto = on; })} />
         </div>
         <div class="set-row">
-          <span class="grow"><b>С чего начинать</b><span class="muted sm">${st.profile.mode === 'baby' ? 'раздел «Малыш»' : '«Мой круг»'}</span></span>
-          <button type="button" class="btn-chip" onClick=${() => update((d) => { d.profile.mode = d.profile.mode === 'baby' ? 'talk' : 'baby'; })}>${st.profile.mode === 'baby' ? 'На «Мой круг»' : 'На «Малыш»'}</button>
+          <span class="grow"><b>Режим «Малыш»</b><span class="muted sm">${st.profile.mode === 'baby' ? 'своя вкладка, приложение открывается с неё' : 'фразы для родителей — в «Разговорнике»'}</span></span>
+          <${Toggle} on=${st.profile.mode === 'baby'} label="Режим «Малыш»" onChange=${(on) => update((d) => { d.profile.mode = on ? 'baby' : 'talk'; })} />
         </div>
         <div class="set-row"><span class="grow"><b>Язык объяснений</b><span class="muted sm">Русский · English и 中文 — скоро</span></span></div>
       </section>
@@ -2378,7 +2598,9 @@ function Profile({ st, update, go }) {
       <p class="muted sm foot">MVP 0.1 · фразы — черновик, их проверит носитель языка.${voice.recorded()
         ? ' Озвучка: голос ISSAI KazakhTTS2 (CC BY 4.0), синтез Piper; ударение в записи может ошибаться.' : ''}</p>
     </div>
-    <${TabBar} tab="profile" go=${go} />
+    <${TabBar} tab="profile" go=${go} st=${st} />
+    ${remind ? html`<${RemindSheet} was=${st.seen.remind} onClose=${() => setRemind(false)}
+      onSet=${(time) => { update((d) => { d.seen.remind = time; }); setRemind(false); }} />` : null}
   </main>`;
 }
 
@@ -2391,13 +2613,49 @@ function routeAfterStart(st) {
   return { name: st.profile.mode === 'baby' ? 'baby' : 'home' };
 }
 
+// One screen up from each screen — where the arrow in its corner leads; null on the first screen.
+// In the talk mode «Малыш» opens from the phrasebook.
+function upRoute(route, st) {
+  const start = st.profile.mode === 'baby' ? 'baby' : 'home';
+  switch (route.name) {
+    case 'topic': case 'review': return { name: 'home' };
+    case 'conv': return { name: 'topic', ti: route.ti };
+    case 'race': return route.ti != null ? { name: 'topic', ti: route.ti } : { name: 'home' };
+    case 'rules': return { name: route.back || 'phrasebook' };
+    case 'babyScen': return { name: 'baby' };
+    case 'baby': return start === 'baby' ? null : { name: 'phrasebook' };
+    case 'home': case 'phrasebook': case 'profile': return route.name === start ? null : { name: start };
+    default: return null;
+  }
+}
+
 function App() {
   const [st, setSt] = useState(INITIAL);
-  // A fact is shown once: the splash keeps the fact it opened with, even past midnight.
+  // A fact is shown once: the splash keeps the fact it opened with, even past midnight. A newcomer
+  // meets Bota first; the fact waits for a later start.
   const [route, setRoute] = useState(() => {
     const fact = factFor();
-    return fact && INITIAL.seen.fact !== fact.key ? { name: 'splash', fact } : routeAfterStart(INITIAL);
+    return fact && INITIAL.profile.onboarded && INITIAL.seen.fact !== fact.key ? { name: 'splash', fact } : routeAfterStart(INITIAL);
   });
+  const shown = useRef({ route, st });
+  shown.current = { route, st };
+  // The phone's «Назад»: an open sheet closes; otherwise the app goes one screen up and keeps the
+  // entry ahead for the next time; on the first screen the page is left as usual.
+  useEffect(() => {
+    if (!OWN_HISTORY) return undefined;
+    armBack();
+    const onPop = () => {
+      const close = closers[closers.length - 1];
+      if (close) { close(); armBack(); return; }
+      const up = upRoute(shown.current.route, shown.current.st);
+      if (!up) { history.back(); return; }
+      voice.stop();
+      setRoute(up);
+      armBack();
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
   const [, setTick] = useState(0);
   const [storageNoted, setStorageNoted] = useState(false);
   useEffect(() => voice.init(() => setTick((x) => x + 1)), []);
@@ -2425,6 +2683,8 @@ function App() {
   });
   const go = (name, params = {}) => {
     voice.stop();
+    // Left on the first screen by «Назад» once, the page arms it again for the screens below.
+    armBack();
     setRoute({ name, ...params });
   };
 
@@ -2434,7 +2694,11 @@ function App() {
       screen = html`<${Splash} fact=${route.fact} onNext=${() => { update((d) => { d.seen.fact = route.fact.key; }); setRoute(routeAfterStart(st)); }} />`;
       break;
     case 'onboard':
-      screen = html`<${Onboard} st=${st} update=${update} done=${(mode) => go(mode === 'baby' ? 'baby' : 'home')} />`;
+      // After meeting Bota the first conversation opens at once (with Әже); parents go to «Малыш».
+      screen = html`<${Onboard} st=${st} update=${update} done=${(mode) => {
+        const nx = mode === 'baby' ? null : nextUp(st);
+        if (nx) go('conv', { ti: nx.ti, ci: nx.ci }); else go(mode === 'baby' ? 'baby' : 'home');
+      }} />`;
       break;
     case 'topic':
       screen = html`<${TopicScreen} st=${st} ti=${route.ti} go=${go} />`;

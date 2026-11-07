@@ -1,20 +1,20 @@
 // Бота without the network: the service worker of the site keeps this version of the app — the
 // page, its modules, icons, Preact and the fonts — so the app installed on a phone opens offline.
 // A template: tools/site.mjs fills in VERSION (the commit) and CORE (the files of the version).
-const VERSION = 'ce769eb';
+const VERSION = 'e1f9ffb';
 const CORE = [
  "./",
- "app.js?v=ce769eb",
- "art.js?v=ce769eb",
- "audio-index.js?v=ce769eb",
- "content-a2.js?v=ce769eb",
- "content-b1.js?v=ce769eb",
- "content-b2.js?v=ce769eb",
- "content.js?v=ce769eb",
- "fsrs.js?v=ce769eb",
- "mic.js?v=ce769eb",
- "typing.js?v=ce769eb",
- "voice.js?v=ce769eb",
+ "app.js?v=e1f9ffb",
+ "art.js?v=e1f9ffb",
+ "audio-index.js?v=e1f9ffb",
+ "content-a2.js?v=e1f9ffb",
+ "content-b1.js?v=e1f9ffb",
+ "content-b2.js?v=e1f9ffb",
+ "content.js?v=e1f9ffb",
+ "fsrs.js?v=e1f9ffb",
+ "mic.js?v=e1f9ffb",
+ "typing.js?v=e1f9ffb",
+ "voice.js?v=e1f9ffb",
  "apple-touch-icon.png",
  "icon-192.png",
  "icon-512.png",
@@ -61,7 +61,8 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return;
   const url = new URL(request.url);
   // The page itself: the network first, so a new version arrives at once; the kept page offline.
-  if (request.mode === 'navigate') {
+  // Other addresses opened as pages (a calendar file of the reminder) are never kept as the page.
+  if (request.mode === 'navigate' && url.origin === self.location.origin && /\/(index\.html)?$/.test(url.pathname)) {
     event.respondWith((async () => {
       try {
         const response = await fetch(request);

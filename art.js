@@ -28,6 +28,7 @@ const ICONS = {
   phone: 'M7 2.5h10a1 1 0 0 1 1 1v17a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1v-17a1 1 0 0 1 1-1zM12 7v7M9 11l3 3 3-3M10.5 18.5h3',
   file: 'M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7l-4-4zM14 3v4h4M9.5 14.5l2.5 2.5 2.5-2.5M12 10v7',
   edit: 'M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4',
+  calendar: 'M4 5.5h16v15H4zM4 10.5h16M8.5 3v5M15.5 3v5M8 14.5h2.5M13.5 14.5H16',
   speaker: 'M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13',
   sound: 'M11 5L6 9H3v6h3l5 4V5zM15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13',
 };
@@ -655,8 +656,8 @@ export function Photo({ kind }) {
     <${Person} x=${148} c="#0B7D8D" s="#E1AE82" />`);
 }
 
-// Month as a shanyrak: one spoke (уық) per day.
-export function Shanyrak({ year, month, days, today, size = 120 }) {
+// Month as a shanyrak: one spoke (уық) per day. fresh: today's spoke has just been added — it stands out.
+export function Shanyrak({ year, month, days, today, size = 120, fresh }) {
   const n = new Date(year, month + 1, 0).getDate();
   const spokes = [];
   for (let i = 1; i <= n; i++) {
@@ -665,7 +666,7 @@ export function Shanyrak({ year, month, days, today, size = 120 }) {
     const x2 = 85 + 75 * Math.cos(a), y2 = 85 + 75 * Math.sin(a);
     const key = `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
     let cls = 'spoke-future';
-    if (days[key]) cls = 'spoke-done';
+    if (days[key]) cls = fresh && i === today ? 'spoke-done spoke-new' : 'spoke-done';
     else if (i === today) cls = 'spoke-today';
     else if (i < today) cls = 'spoke-miss';
     spokes.push(html`<line x1=${x1.toFixed(1)} y1=${y1.toFixed(1)} x2=${x2.toFixed(1)} y2=${y2.toFixed(1)} class=${cls}></line>`);

@@ -1,0 +1,23 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Bota//Kazakh//RU
+CALSCALE:GREGORIAN
+METHOD:PUBLISH
+BEGIN:VEVENT
+UID:bota-daily-0800@madikabdulovrec-cpu.github.io
+DTSTAMP:20261107T195008Z
+DTSTART:20261108T080000
+DURATION:PT10M
+RRULE:FREQ=DAILY
+SUMMARY:Бота · казахский на каждый день
+DESCRIPTION:Пара минут: разговор\, повторение и
+ ли фразы для малыша. Открыть Боту: https://madi
+ kabdulovrec-cpu.github.io/bota/
+URL:https://madikabdulovrec-cpu.github.io/bota/
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Бота · казахский на каждый день
+TRIGGER:PT0M
+END:VALARM
+END:VEVENT
+END:VCALENDAR

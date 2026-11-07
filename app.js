@@ -1,11 +1,11 @@
 // Бота — MVP: conversational Kazakh for Russian speakers.
 import { html, render, useState, useEffect, useRef, useMemo, useErrorBoundary } from 'https://cdn.jsdelivr.net/npm/htm@3.1.1/preact/standalone.module.js';
-import { KINDS, CITIES, JOBS, HOBBIES, CHOICES, PEOPLE, PHRASES, TOPICS, LEVELS, RULES, RESCUE, PHRASEBOOK, BABY, BABY_GROUPS, BABY_AGES, BABY_GOAL, FACTS, RACE_APART } from './content.js?v=1efdd97';
-import * as fsrs from './fsrs.js?v=1efdd97';
-import * as voice from './voice.js?v=1efdd97';
-import * as mic from './mic.js?v=1efdd97';
-import { KZ_LETTERS, checkTyped, normType, plain } from './typing.js?v=1efdd97';
-import { Icon, PlayGlyph, SpeakerGlyph, Sun, Logo, Bota, Avatar, Yurt, Photo, Shanyrak, Wave } from './art.js?v=1efdd97';
+import { KINDS, CITIES, JOBS, HOBBIES, CHOICES, PEOPLE, PHRASES, TOPICS, LEVELS, RULES, RESCUE, PHRASEBOOK, BABY, BABY_GROUPS, BABY_AGES, BABY_GOAL, FACTS, RACE_APART } from './content.js?v=b84d041';
+import * as fsrs from './fsrs.js?v=b84d041';
+import * as voice from './voice.js?v=b84d041';
+import * as mic from './mic.js?v=b84d041';
+import { KZ_LETTERS, checkTyped, normType, plain } from './typing.js?v=b84d041';
+import { Icon, PlayGlyph, SpeakerGlyph, Sun, Logo, Bota, Avatar, Yurt, Photo, Shanyrak, Wave } from './art.js?v=b84d041';
 
 /* ---------- storage: progress lives in this browser only ---------- */
 
@@ -26,8 +26,9 @@ function fresh() {
     // trAuto: translations under every line from the start; otherwise a tap on a line shows its own.
     // mic: «Скажи вслух» records the phrase with the microphone where the browser allows it.
     settings: { voice: true, trAuto: false, mic: true },
-    // fact: the key of the last fact of the day shown (its date this year).
-    seen: { fact: '', noVoice: false, trTap: false },
+    // fact: the key of the last fact of the day shown (its date this year); install: 'never' once the
+    // learner turned down «Поставь Боту на экран»; persist: what the browser said to keeping storage.
+    seen: { fact: '', noVoice: false, trTap: false, install: '', persist: '' },
   };
 }
 
@@ -36,22 +37,28 @@ const isObj = (x) => !!x && typeof x === 'object' && !Array.isArray(x);
 // Old or damaged progress must not break the app: every field is checked, and a record that
 // cannot be read is kept under another key rather than overwritten.
 function load() {
-  const base = fresh();
   let raw;
   try {
     raw = localStorage.getItem(KEY);
   } catch (e) {
     storageOk = false;
-    return base;
+    return fresh();
   }
   lastSaved = raw;
-  if (!raw) return base;
+  if (!raw) return fresh();
   let d = null;
   try { d = JSON.parse(raw); } catch (e) { /* kept below */ }
   if (!isObj(d)) {
     try { localStorage.setItem(`${KEY}-broken`, raw); } catch (e) { /* the copy is a courtesy */ }
-    return base;
+    return fresh();
   }
+  return normalize(d);
+}
+
+// Every field of a record — from this browser, an older version or a file from another device —
+// is checked and filled in.
+function normalize(d) {
+  const base = fresh();
   const obj = (x) => (isObj(x) ? x : {});
   const counts = (x) => Object.fromEntries(Object.entries(obj(x)).filter(([, n]) => Number.isFinite(n) && n > 0));
   const race = obj(d.race);
@@ -88,6 +95,154 @@ function latest(prev) {
     if (raw && raw !== lastSaved) return load();
   } catch (e) { /* keep this tab's state */ }
   return prev;
+}
+
+// Progress brought from a file joins the progress here and loses nothing on either side: lessons,
+// days and rules add up (the earlier date stays), a memory card keeps its latest review, a race its
+// best time. Name, settings and what was seen stay as they are on this device.
+function mergeProgress(here, there) {
+  const out = JSON.parse(JSON.stringify(here));
+  const earlier = (a, b) => (!a ? b : !b || a <= b ? a : b);
+  Object.entries(there.done).forEach(([id, day]) => { out.done[id] = earlier(out.done[id], day); });
+  Object.entries(there.rules).forEach(([id, day]) => { out.rules[id] = earlier(out.rules[id], day); });
+  Object.entries(there.days).forEach(([day, on]) => { if (on) out.days[day] = true; });
+  const reviewed = (c) => (Number.isFinite(c.last) ? c.last : 0);
+  Object.entries(there.mem).forEach(([id, card]) => { if (!out.mem[id] || reviewed(card) > reviewed(out.mem[id])) out.mem[id] = card; });
+  out.vars = { ...there.vars, ...out.vars };
+  if (!out.profile.onboarded && there.profile.onboarded) out.profile = { ...there.profile };
+  if (!out.baby.name && there.baby.name) Object.assign(out.baby, { name: there.baby.name, age: there.baby.age });
+  Object.entries(there.baby.said).forEach(([day, said]) => { out.baby.said[day] = { ...(isObj(said) ? said : {}), ...(out.baby.said[day] || {}) }; });
+  Object.entries(there.race.best).forEach(([k, ms]) => { if (!out.race.best[k] || ms < out.race.best[k]) out.race.best[k] = ms; });
+  Object.entries(there.race.miss).forEach(([k, n]) => { out.race.miss[k] = Math.max(out.race.miss[k] || 0, n); });
+  out.race.runs = Math.max(out.race.runs, there.race.runs);
+  out.race.rival = out.race.rival || there.race.rival;
+  return out;
+}
+
+// A file for the learner: in the claude.ai artifact through its downloads capability (its frame may
+// not download by itself; the viewer confirms the save), elsewhere as an ordinary download.
+async function saveFile(filename, text) {
+  const host = window.claude && typeof window.claude.use === 'function' ? await window.claude.use('downloads').catch(() => null) : null;
+  if (host) {
+    try {
+      await host.save({ filename, data: text });
+      return 'saved';
+    } catch (e) {
+      return e && e.code === 'declined' ? 'declined' : 'failed';
+    }
+  }
+  if (window.self !== window.top) return 'failed';
+  const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+  const a = Object.assign(document.createElement('a'), { href: url, download: filename });
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
+  return 'saved';
+}
+
+/* ---------- the site as an app on the phone ---------- */
+
+// Only the site build carries a manifest (tools/site.mjs): there the app can be put on the home
+// screen and works offline. The claude.ai artifact and the local preview have none.
+const SITE_BUILD = !!document.querySelector('link[rel="manifest"]');
+const standalone = () => (!!window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+// Chrome on Android offers its own install dialog; it is kept for the moment the learner asks.
+let installPrompt = null;
+const installListeners = new Set();
+const installChanged = () => installListeners.forEach((fn) => fn());
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installPrompt = e; installChanged(); });
+window.addEventListener('appinstalled', () => { installPrompt = null; installChanged(); });
+
+function registerWorker() {
+  if (!SITE_BUILD || !('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.register('./sw.js').catch(() => { /* the app works without it, just not offline */ });
+}
+
+// The steps differ: Safari on iPhone, a messenger's own browser (its storage lives apart and may be
+// lost), everything else.
+function installHow() {
+  const ua = navigator.userAgent || '';
+  if (/Telegram|Instagram|FBAN|FBAV|FB_IAB|Line\/|WhatsApp|VKClient|OKApp/i.test(ua)) return 'inapp';
+  if (/iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) return 'ios';
+  return 'other';
+}
+const INSTALL_STEPS = {
+  inapp: {
+    title: 'Открой Боту в браузере',
+    steps: ['Нажми меню ⋯ в углу экрана.', 'Выбери «Открыть в браузере» — Safari или Chrome.', 'Там поставь Боту на экран «Домой».'],
+    note: 'Во встроенном браузере мессенджера прогресс хранится отдельно и может пропасть.',
+  },
+  ios: {
+    title: 'Поставь Боту на экран «Домой»',
+    steps: ['Нажми «Поделиться» — квадрат со стрелкой внизу экрана.', 'Выбери «На экран „Домой“».', 'Открывай Боту с иконки, как обычное приложение.'],
+    note: 'С иконки Safari не сотрёт прогресс, даже если неделю не заниматься, а уроки откроются и без интернета.',
+  },
+  other: {
+    title: 'Поставь Боту на экран телефона',
+    steps: ['Открой меню браузера ⋮.', 'Выбери «Установить приложение» или «Добавить на главный экран».', 'Открывай Боту с иконки, как обычное приложение.'],
+    note: 'Так прогресс хранится надёжнее, а уроки открываются и без интернета.',
+  },
+};
+
+// Offered on the site, outside the installed app, once the learner has done something worth keeping.
+const installDue = (st) => SITE_BUILD && !standalone() && st.seen.install !== 'never'
+  && (Object.keys(st.done).length > 0 || Object.keys(st.baby.said || {}).length > 0);
+
+function InstallRow({ st, onOpen }) {
+  const [, redraw] = useState(0);
+  useEffect(() => {
+    const fn = () => redraw((n) => n + 1);
+    installListeners.add(fn);
+    return () => installListeners.delete(fn);
+  }, []);
+  if (!installDue(st)) return null;
+  return html`<button type="button" class="mem-row" onClick=${onOpen}>
+    <span class="mem-ic race-ic"><${Icon} name="phone" size=${22} /></span>
+    <span class="grow">Поставь Боту на экран телефона — прогресс не потеряется</span>
+    <${Icon} name="next" size=${18} stroke=${2.4} />
+  </button>`;
+}
+
+// Chrome's own dialog when there is one; otherwise the steps for this browser.
+function useInstall(update) {
+  const [sheet, setSheet] = useState(false);
+  const open = () => {
+    if (!installPrompt) { setSheet(true); return; }
+    const prompt = installPrompt;
+    installPrompt = null;
+    prompt.prompt();
+    prompt.userChoice.then(installChanged, installChanged);
+  };
+  const view = sheet ? html`<${InstallSheet} onClose=${() => setSheet(false)}
+    onNever=${() => { update((d) => { d.seen.install = 'never'; }); setSheet(false); }} />` : null;
+  return [open, view];
+}
+
+function InstallSheet({ onClose, onNever }) {
+  const how = INSTALL_STEPS[installHow()];
+  const box = useRef(null);
+  useEffect(() => {
+    const back = document.activeElement;
+    const title = box.current && box.current.querySelector('h2');
+    if (title) title.focus();
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      if (back && back.focus && document.contains(back)) back.focus();
+    };
+  }, []);
+  return html`<div class="sheet-back" onClick=${onClose}>
+    <div class="sheet pad" ref=${box} role="dialog" aria-modal="true" aria-label=${how.title} onClick=${(e) => e.stopPropagation()}>
+      <span class="sheet-grip" aria-hidden="true"></span>
+      <h2 class="h2" tabindex="-1">${how.title}</h2>
+      <ol class="install-steps">${how.steps.map((step) => html`<li>${step}</li>`)}</ol>
+      <p class="muted sm">${how.note}</p>
+      <button type="button" class="btn btn-primary btn-block" onClick=${onClose}>Понятно</button>
+      <span class="done-links"><button type="button" class="link-btn" onClick=${onNever}>Не напоминать</button></span>
+    </div>
+  </div>`;
 }
 
 /* ---------- dates and words ---------- */
@@ -240,7 +395,7 @@ function factFor(now = new Date()) {
 /* ---------- small shared pieces ---------- */
 
 function SpeakBtn({ text, small, label = 'Прослушать' }) {
-  if (!voice.available() || !text) return null;
+  if (!voice.canSay(text)) return null;
   return html`<button type="button" class=${small ? 'say-btn sm' : 'say-btn'} aria-label=${label}
     onClick=${(e) => { e.stopPropagation(); voice.speak(text); }}><${SpeakerGlyph} size=${small ? 14 : 16} /></button>`;
 }
@@ -513,12 +668,13 @@ const GOAL_LESSONS = { 5: 3, 10: 6, 15: 9 };
 const goalOf = (st) => GOAL_LESSONS[st.profile.minutes] || 6;
 const doneToday = (st) => Object.values(st.done).filter((d) => d === dayKey()).length;
 
-function Home({ st, go }) {
+function Home({ st, go, update }) {
   const v = varsOf(st);
   const [level, setLevelState] = useState(() => homeLevel || (nextUp(st) || { t: LEVELS[0] }).t.level || LEVELS[0].id);
   const setLevel = (id) => { homeLevel = id; setLevelState(id); };
   const today = doneToday(st);
   const goal = goalOf(st);
+  const [install, installSheet] = useInstall(update);
   return html`<main class="screen">
     <div class="scroll pad home">
       <header class="home-head"><span class="grow"><h1 class="h1">Привет, ${v.name}!</h1>
@@ -531,8 +687,10 @@ function Home({ st, go }) {
       <${NextCard} st=${st} go=${go} level=${level} setLevel=${setLevel} />
       <${MemRow} st=${st} go=${go} />
       <${RaceRow} st=${st} go=${go} />
+      <${InstallRow} st=${st} onOpen=${install} />
     </div>
     <${TabBar} tab="home" go=${go} />
+    ${installSheet}
   </main>`;
 }
 
@@ -623,7 +781,7 @@ function Msg({ m, tr, hint, topic, onRule, onTr }) {
   if (m.k === 'voice') {
     if (!m.url) {
       return html`<div class="b b-me b-said"><span class="b-kk" lang="kk">${m.kk}</span>
-        <span class="b-said-row"><${Icon} name="mic" size=${13} stroke=${2.4} /> сказал(а) вслух${voice.available()
+        <span class="b-said-row"><${Icon} name="mic" size=${13} stroke=${2.4} /> сказал(а) вслух${voice.canSay(m.kk)
           ? html`<span aria-hidden="true"> · </span><button type="button" class="b-sample" onClick=${() => voice.speak(m.kk)}>образец</button>` : null}</span></div>`;
     }
     const play = () => {
@@ -811,11 +969,13 @@ function SayPanel({ step, v, tr, st, paused, onPause, onResume, onDone, onHint }
   useEffect(() => () => {
     alive.current = false;
     if (live.current) live.current.cancel();
+    voice.hold(false);
   }, []);
 
   const start = () => {
     if (live.current) return;
-    voice.stop();
+    // Nothing sounds while the microphone listens: a sample would be recorded as the learner's voice.
+    voice.hold(true);
     mic.stopPlaying();
     setStatus('');
     const r = mic.record({
@@ -830,6 +990,7 @@ function SayPanel({ step, v, tr, st, paused, onPause, onResume, onDone, onHint }
     const settle = () => {
       live.current = null;
       if (liveRecording === r) liveRecording = null;
+      voice.hold(false);
       if (alive.current) setStage('idle');
     };
     r.done.then((res) => {
@@ -897,7 +1058,7 @@ function SayPanel({ step, v, tr, st, paused, onPause, onResume, onDone, onHint }
       <span class="say-kk" lang="kk">${kk}</span>
       <span class=${'say-syl' + (step.stress ? ' big' : '')}>${step.stress ? html`<${Syllables} text=${syl} />` : syl}</span>
       ${tr ? html`<span class="say-ru">«${val(step.ru, v)}»</span>` : null}
-      ${voice.available()
+      ${voice.canSay(kk)
         ? html`<div class="say-ctl">
             <button type="button" class="ctl" disabled=${busy} onClick=${() => voice.speak(kk)}><${SpeakerGlyph} size=${16} /> Послушать</button>
             <button type="button" class="ctl" disabled=${busy} onClick=${() => voice.slow(kk)}>Медленно</button></div>`
@@ -910,7 +1071,7 @@ function SayPanel({ step, v, tr, st, paused, onPause, onResume, onDone, onHint }
 // Two words that differ in one sound. With a voice: which one sounded?
 // Without one: which one has this meaning?
 function PairPanel({ step, auto, onDone, onHint }) {
-  const hasVoice = voice.available();
+  const hasVoice = voice.canSay(step.pair[0][0]) && voice.canSay(step.pair[1][0]);
   const [target] = useState(() => Math.floor(Math.random() * step.pair.length));
   const order = useMemo(() => shuffle(step.pair.map((_, i) => i)), []);
   const [pick, setPick] = useState(-1);
@@ -951,7 +1112,7 @@ function PairPanel({ step, auto, onDone, onHint }) {
 function TypePanel({ step, v, auto, onDone, onHint }) {
   const answer = val(step.type, v);
   const answers = [answer, ...(step.alt || []).map((a) => val(a, v))];
-  const dict = !!step.dict && voice.available();
+  const dict = !!step.dict && voice.canSay(answer);
   const [text, setText] = useState('');
   const [hint, setHint] = useState(false);
   const input = useRef(null);
@@ -1237,7 +1398,7 @@ function ConvScreen({ st, update, ti, ci, go }) {
     </header>
     <div class="scroll chat pad" ref=${scroller}>
       <div class="msgs" role="log" aria-live="polite">
-        ${showNoVoice ? html`<div class="banner"><span>В этом браузере нет казахского голоса, поэтому фразы пока без звука. Со звуком они работают в Microsoft Edge.</span>
+        ${showNoVoice ? html`<div class="banner"><span>Здесь фразы пока без звука: в этом браузере нет казахского голоса. Со звуком они работают <a href=${SITE} target="_blank" rel="noopener">на сайте приложения</a> и в Microsoft Edge.</span>
           <button type="button" class="btn-chip" onClick=${() => update((d) => { d.seen.noVoice = true; })}>Понятно</button></div>` : null}
         <span class="conv-kind">${KINDS[conv.kind].label} · ${conv.title}</span>
         ${log.map((m, i) => html`<${Msg} key=${i} m=${m} tr=${tr || !!opened[i]} hint=${i === firstLine && !tr && !st.seen.trTap}
@@ -1916,7 +2077,7 @@ function Phrasebook({ st, update, go }) {
       <div class="search"><label class="sr" for="pb-search">Поиск фразы</label><${Icon} name="search" size=${18} stroke=${2.2} />
         <input id="pb-search" type="search" placeholder="Найти фразу по-русски или по-казахски" value=${q} onInput=${(e) => setQ(e.target.value)} /></div>
       ${query ? null : html`<section class="rescue"><span class="eyebrow">ЕСЛИ РАСТЕРЯЛСЯ В РАЗГОВОРЕ</span>
-        <div class="rescue-row">${RESCUE.map((x) => (voice.available()
+        <div class="rescue-row">${RESCUE.map((x) => (voice.canSay(x.kk)
           ? html`<button type="button" class="rescue-chip" onClick=${() => voice.speak(x.kk)} aria-label=${`${x.kk} — ${x.ru}`}>
               <b class="kk" lang="kk">${x.kk}</b><span class="muted sm">${x.ru}</span></button>`
           : html`<span class="rescue-chip still"><b class="kk" lang="kk">${x.kk}</b><span class="muted sm">${x.ru}</span></span>`))}</div></section>`}
@@ -1972,6 +2133,7 @@ function toggleSaid(update, pid) {
 function Baby({ st, update, go }) {
   const [name, setName] = useState('');
   const [age, setAge] = useState('1-2');
+  const [install, installSheet] = useInstall(update);
   const today = dayKey();
   const week = weekKeys();
   const said = st.baby.said || {};
@@ -2037,9 +2199,11 @@ function Baby({ st, update, go }) {
           </button>`;
         })}</div>
       </section>`)}
+      <${InstallRow} st=${st} onOpen=${install} />
       <p class="baby-tip"><${Bota} size=${26} /><span>Говорите сами, своим голосом: малыш учится у живого человека, а не у экрана.</span></p>
     </div>
     <${TabBar} tab="baby" go=${go} />
+    ${installSheet}
   </main>`;
 }
 
@@ -2096,6 +2260,37 @@ function Profile({ st, update, go }) {
   const goal = goalOf(st);
   const hasVoice = voice.available();
   const micUsable = mic.supported() && mic.allowed();
+  // Moving the progress: a file saved here opens on another phone or in another browser.
+  const fileInput = useRef(null);
+  const [transfer, setTransfer] = useState('');
+  const exportProgress = async () => {
+    const filename = `bota-progress-${dayKey()}.json`;
+    const text = JSON.stringify({ app: 'bota', format: 1, saved: new Date().toISOString(), progress: latest(st) });
+    const res = await saveFile(filename, text);
+    setTransfer(res === 'saved' ? `Файл «${filename}» сохранён. На другом устройстве открой «Профиль» → «Загрузить из файла».`
+      : res === 'declined' ? '' : 'Здесь не получилось сохранить файл — попробуй в Safari или Chrome.');
+  };
+  const importProgress = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    let data = null;
+    try { data = JSON.parse(await file.text()); } catch (err) { /* not JSON: answered below */ }
+    if (!isObj(data) || data.app !== 'bota' || !isObj(data.progress)) {
+      setTransfer('Это не файл прогресса Боты.');
+      return;
+    }
+    const there = normalize(data.progress);
+    const merged = mergeProgress(latest(st), there);
+    update((d) => {
+      const next = mergeProgress(d, there);
+      Object.keys(d).forEach((k) => delete d[k]);
+      Object.assign(d, next);
+    });
+    const lessons = ALL_CONVS.filter((x) => merged.done[x.c.id]).length;
+    const phrases = Object.keys(merged.mem).length;
+    setTransfer(`Прогресс перенесён: ${lessons} ${plural(lessons, LESSON_W)}, ${phrases} ${plural(phrases, PHR_W)} в памяти.`);
+  };
   return html`<main class="screen">
     <div class="scroll pad profile">
       <header class="prof-head">
@@ -2144,7 +2339,8 @@ function Profile({ st, update, go }) {
           <button type="submit" class="btn-chip primary" disabled=${!babyClean}>Сохранить</button>
           <button type="button" class="btn-chip" onClick=${() => setBabyEdit(false)}>Отмена</button></form>` : null}
         <div class="set-row">
-          <span class="grow"><b>Озвучка реплик</b><span class="muted sm">${hasVoice ? `голос: ${voice.name()}` : 'в этом браузере нет казахского голоса — он есть в Microsoft Edge'}</span></span>
+          <span class="grow"><b>Озвучка реплик</b><span class="muted sm">${!hasVoice ? html`здесь нет казахского голоса — он есть <a href=${SITE} target="_blank" rel="noopener">на сайте</a> и в Microsoft Edge`
+            : voice.recorded() ? 'записанные фразы' : `голос: ${voice.name()}`}</span></span>
           <${Toggle} on=${st.settings.voice && hasVoice} disabled=${!hasVoice} label="Озвучка реплик" onChange=${(on) => update((d) => { d.settings.voice = on; })} />
         </div>
         <div class="set-row">
@@ -2163,13 +2359,24 @@ function Profile({ st, update, go }) {
         </div>
         <div class="set-row"><span class="grow"><b>Язык объяснений</b><span class="muted sm">Русский · English и 中文 — скоро</span></span></div>
       </section>
+      <section class="card transfer">
+        <span class="eyebrow">ПЕРЕНЕСТИ ПРОГРЕСС</span>
+        <span class="sm">Прогресс хранится на этом устройстве. Сохрани его в файл и загрузи на новом телефоне или в другом браузере: уроки, память и серия сложатся.</span>
+        <div class="row-btns">
+          <button type="button" class="btn-chip" onClick=${exportProgress}><${Icon} name="file" size=${16} /> Сохранить в файл</button>
+          <button type="button" class="btn-chip" onClick=${() => fileInput.current && fileInput.current.click()}>Загрузить из файла</button>
+        </div>
+        <input type="file" accept=".json,application/json" hidden ref=${fileInput} onChange=${importProgress} aria-label="Файл прогресса" />
+        ${transfer ? html`<span class="muted sm" role="status">${transfer}</span>` : null}
+      </section>
       <section class="card danger">
         ${confirmReset ? html`<span><b>Сбросить весь прогресс?</b><span class="muted sm">Разговоры, память и серия на этом устройстве удалятся.</span></span>
           <div class="row-btns"><button type="button" class="btn-chip danger-btn" onClick=${() => { update((d) => { const f = fresh(); Object.keys(d).forEach((k) => delete d[k]); Object.assign(d, f); }); homeLevel = null; go('onboard'); }}>Сбросить</button>
             <button type="button" class="btn-chip" onClick=${() => setConfirmReset(false)}>Отмена</button></div>`
           : html`<button type="button" class="btn-chip" onClick=${() => setConfirmReset(true)}>Сбросить прогресс</button>`}
       </section>
-      <p class="muted sm foot">Прогресс хранится только в этом браузере. MVP 0.1 · фразы — черновик, их проверит носитель языка.</p>
+      <p class="muted sm foot">MVP 0.1 · фразы — черновик, их проверит носитель языка.${voice.recorded()
+        ? ' Озвучка: голос ISSAI KazakhTTS2 (CC BY 4.0), синтез Piper; ударение в записи может ошибаться.' : ''}</p>
     </div>
     <${TabBar} tab="profile" go=${go} />
   </main>`;
@@ -2194,6 +2401,12 @@ function App() {
   const [, setTick] = useState(0);
   const [storageNoted, setStorageNoted] = useState(false);
   useEffect(() => voice.init(() => setTick((x) => x + 1)), []);
+  // On the site the browser is asked to keep the progress even when space runs short. It asks no
+  // one: browsers grant it to an app put on the home screen, so each start asks again until then.
+  useEffect(() => {
+    if (!SITE_BUILD || !st.profile.onboarded || st.seen.persist === 'yes' || !navigator.storage || !navigator.storage.persist) return;
+    navigator.storage.persist().then((kept) => { if (kept) update((d) => { d.seen.persist = 'yes'; }); }, () => {});
+  }, [st.profile.onboarded]);
   // Progress saved in another tab replaces this tab's copy before it can be overwritten.
   useEffect(() => {
     const sync = () => setSt((prev) => latest(prev));
@@ -2252,7 +2465,7 @@ function App() {
       screen = html`<${Profile} st=${st} update=${update} go=${go} />`;
       break;
     default:
-      screen = html`<${Home} st=${st} go=${go} />`;
+      screen = html`<${Home} st=${st} go=${go} update=${update} />`;
   }
   // The notice lets taps through to the screen and can be closed.
   return html`${screen}${storageOk || storageNoted ? null : html`<div class="toast" role="status">
@@ -2286,3 +2499,5 @@ document.documentElement.lang = 'ru';
 const mount = document.getElementById('app');
 mount.textContent = '';
 render(html`<${Safe}><${App} /><//>`, mount);
+if (document.readyState === 'complete') registerWorker();
+else window.addEventListener('load', registerWorker);

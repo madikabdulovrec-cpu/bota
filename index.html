@@ -1,4 +1,4 @@
-<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font:14px system-ui,sans-serif}img{max-width:100%}[hidden]{display:none!important}</style><meta name="robots" content="noindex, nofollow"></head><body><title>Бота MVP</title>
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font:14px system-ui,sans-serif}img{max-width:100%}[hidden]{display:none!important}</style><meta name="robots" content="noindex, nofollow"><link rel="manifest" href="manifest.webmanifest"><meta name="theme-color" content="#0B7D8D"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Бота"><meta name="apple-mobile-web-app-status-bar-style" content="default"><link rel="apple-touch-icon" href="apple-touch-icon.png"><link rel="icon" type="image/png" sizes="192x192" href="icon-192.png"></head><body><title>Бота MVP</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Nunito:wght@700;800;900&display=swap">
 <style>
@@ -569,6 +569,12 @@ button.vplay { cursor: pointer; }
 .switch i { position: absolute; top: 3px; left: 3px; width: 26px; height: 26px; border-radius: 50%; background: #FFFFFF; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25); transition: left 0.15s; }
 .switch.on { background: var(--teal); box-shadow: none; }
 .switch.on i { left: 23px; }
+/* Moving the progress to another device: two chips and a line saying how it went. */
+.transfer .row-btns { flex-wrap: wrap; }
+.transfer .btn-chip { display: inline-flex; align-items: center; gap: 6px; }
+/* Putting the app on the home screen: numbered steps in a sheet. */
+.install-steps { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 8px; font-size: 15px; line-height: 1.45; color: var(--ink2); }
+.install-steps li::marker { font-weight: 800; color: var(--teal-ink); }
 .danger { flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
 .danger > span { display: flex; flex-direction: column; gap: 2px; }
 .row-btns { display: flex; gap: 8px; }
@@ -591,5 +597,5 @@ button.vplay { cursor: pointer; }
   }
   window.botaBoot = setTimeout(botaFail, 10000);
 </script>
-<script type="module" src="./app.js?v=1efdd97" onerror="botaFail()"></script>
+<script type="module" src="./app.js?v=b84d041" onerror="botaFail()"></script>
 </body></html>

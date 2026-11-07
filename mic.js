@@ -190,11 +190,15 @@ export function record({ onLevel = () => {}, onStart = () => {}, maxMs = 10000, 
   return { stop, cancel, done };
 }
 
-// One recording plays at a time.
+// One recording plays at a time, and it stops a sample line that sounds (voice.js) and is stopped by one.
 let player = null;
+const SOUND = 'bota-sound';
+if (typeof window !== 'undefined') window.addEventListener(SOUND, (e) => { if (e.detail !== 'mic') stopPlaying(); });
+
 export function play(url) {
   try {
     if (player) player.pause();
+    try { window.dispatchEvent(new CustomEvent(SOUND, { detail: 'mic' })); } catch (e) { /* old browser */ }
     player = new Audio(url);
     const p = player.play();
     if (p && p.catch) p.catch(() => {});

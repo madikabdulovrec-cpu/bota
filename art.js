@@ -25,6 +25,8 @@ const ICONS = {
   car: 'M4 15l1.8-6.5h12.4L20 15M3 15h18v3.5H3z',
   refresh: 'M20 11a8 8 0 0 0-14.3-4.6L4 8M4 4v4h4M4 13a8 8 0 0 0 14.3 4.6L20 16M20 20v-4h-4',
   flag: 'M5 21V4M5 4h12.5l-2.5 4.5 2.5 4.5H5',
+  // A рубеж: a rhombus within a rhombus, as in the ornaments of felt.
+  gate: 'M12 2.8L21.2 12 12 21.2 2.8 12zM12 8.4L15.6 12 12 15.6 8.4 12z',
   phone: 'M7 2.5h10a1 1 0 0 1 1 1v17a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1v-17a1 1 0 0 1 1-1zM12 7v7M9 11l3 3 3-3M10.5 18.5h3',
   file: 'M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7l-4-4zM14 3v4h4M9.5 14.5l2.5 2.5 2.5-2.5M12 10v7',
   edit: 'M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4',

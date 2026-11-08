@@ -3,9 +3,9 @@
 // Templates in strings: {name}, {cityAbl}, {cityAblSyl}, {cityFrom}, {cityLoc}, {cityIn}.
 // A step field may also be a function of the learner's variables (v) => string.
 
-import { A2_PEOPLE, A2_PHRASES, A2_TOPICS } from './content-a2.js?v=a2db0d0';
-import { B1_PEOPLE, B1_PHRASES, B1_TOPICS } from './content-b1.js?v=a2db0d0';
-import { B2_PEOPLE, B2_PHRASES, B2_TOPICS } from './content-b2.js?v=a2db0d0';
+import { A2_PEOPLE, A2_PHRASES, A2_TOPICS } from './content-a2.js?v=2ddb43c';
+import { B1_PEOPLE, B1_PHRASES, B1_TOPICS } from './content-b1.js?v=2ddb43c';
+import { B2_PEOPLE, B2_PHRASES, B2_TOPICS } from './content-b2.js?v=2ddb43c';
 
 export const KINDS = {
   listen: { label: 'Послушай', icon: 'ear' },
@@ -1975,6 +1975,25 @@ TOPICS.forEach((t) => { t.level = t.level || 'A1'; });
 Object.assign(PEOPLE, A2_PEOPLE, B1_PEOPLE, B2_PEOPLE);
 Object.assign(PHRASES, A2_PHRASES, B1_PHRASES, B2_PHRASES);
 TOPICS.push(...A2_TOPICS, ...B1_TOPICS, ...B2_TOPICS);
+
+// Рубежи: after every 3–4 topics of a circle a check of what was learned, without translation;
+// the last one of a circle (final) is its итог by the four blocks of КАЗТЕСТ: listening, reading,
+// writing, speaking. after — the last topic before it. The questions come from the lessons of its
+// topics (mvp/exam.js), so a рубеж has no Kazakh of its own. The entrance test asks about the same
+// stretches of topics, one after another.
+export const CHECKPOINTS = [
+  { id: 'a1-1', after: 'meken' },
+  { id: 'a1-2', after: 'aua' },
+  { id: 'a1-3', after: 'mereke', final: true },
+  { id: 'a2-1', after: 'avtobus' },
+  { id: 'a2-2', after: 'darikhana' },
+  { id: 'a2-3', after: 'kunim', final: true },
+  { id: 'b1-1', after: 'mektep' },
+  { id: 'b1-2', after: 'konil' },
+  { id: 'b1-3', after: 'zhanalyq', final: true },
+  { id: 'b2-1', after: 'toibata' },
+  { id: 'b2-2', after: 'sukhbat', final: true },
+];
 
 // «Бәйге» across topics: words close in meaning or form never meet in one race, so that a pair that
 // is right by sense is never counted as a mistake. Each group lists race words (words of topics).

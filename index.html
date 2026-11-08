@@ -390,6 +390,19 @@ button.vplay { cursor: pointer; }
 .av-badge.done { background: var(--teal); }
 .av-badge.cur { background: var(--gold); }
 .av-badge.lock { background: var(--dim); }
+/* Рубежи on the circle: a small gold rhombus just outside the ring, joined to it by a short line;
+   grey until it can be taken, dashed once taken and not passed, filled once passed. */
+.cp-tick { stroke: var(--line2); stroke-width: 2; stroke-linecap: round; }
+.cp-tick.on { stroke: var(--gold-line); }
+.cp-btn { position: absolute; z-index: 1; transform: translate(-50%, -50%); width: 32px; height: 32px; padding: 0; border: none; border-radius: 50%; background: transparent; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.cp-btn:disabled { cursor: default; }
+.cp-mark { width: 14px; height: 14px; border-radius: 3px; transform: rotate(45deg); border: 2px solid var(--line2); background: var(--bg); color: #3A2A05; display: flex; align-items: center; justify-content: center; }
+.cp-mark > svg { transform: rotate(-45deg); }
+.cp-btn.final .cp-mark { width: 17px; height: 17px; }
+.cp-btn.open .cp-mark { border-color: var(--gold); }
+.cp-btn.cur .cp-mark { width: 19px; height: 19px; border-color: var(--gold); background: var(--gold-soft); box-shadow: 0 0 0 4px var(--gold-wash); }
+.cp-btn.taken .cp-mark { border-color: var(--gold-deep); border-style: dashed; }
+.cp-btn.pass .cp-mark { border-color: var(--gold); background: var(--gold); }
 .mem-row { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 0 14px; border-radius: 18px; border: 1.5px solid var(--line); background: var(--card); color: var(--ink); font-size: 14px; font-weight: 600; text-align: left; cursor: pointer; }
 .mem-row .grow { display: block; }
 .mem-ic { display: inline-flex; color: var(--gold-deep); }
@@ -408,6 +421,15 @@ button.vplay { cursor: pointer; }
 .state { flex-shrink: 0; display: inline-flex; align-items: center; color: var(--dim); }
 .state.ok { color: var(--teal); }
 .state.now { padding: 4px 10px; border-radius: 10px; background: var(--gold-wash); border: 1.5px solid var(--gold-line); color: var(--gold-ink); font-size: 12px; font-weight: 800; }
+.state.gold { color: var(--gold-deep); }
+.cp-row .conv-ic { background: var(--gold-soft); color: var(--gold-ink); }
+/* A test: its rhombus in the header, the result with its blocks. */
+.test-ic { flex-shrink: 0; width: 40px; height: 40px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: var(--gold-wash); border: 1.5px solid var(--gold-line); color: var(--gold-deep); }
+.cp-big { flex-shrink: 0; width: 44px; height: 44px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; border: 2px dashed var(--gold-deep); background: var(--gold-wash); color: var(--gold-deep); }
+.cp-big.pass { border: none; background: var(--gold); color: #3A2A05; }
+.blocks { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border-radius: 16px; background: var(--bg); border: 1.5px solid var(--line); }
+.block-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-size: 14px; }
+.block-row b { flex-shrink: 0; font-variant-numeric: tabular-nums; }
 .learn { display: flex; flex-direction: column; gap: 8px; }
 .learn-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 16px; background: var(--card); border: 1.5px solid var(--line); }
 
@@ -524,7 +546,7 @@ button.vplay { cursor: pointer; }
 .now-say .b { font-size: 17px; animation: none; }
 .swap-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .swap-line b { font-size: 18px; line-height: 1.35; }
-.slot { padding: 0 6px; border-radius: 8px; background: var(--teal-soft); color: var(--teal-ink); }
+.swap-slot { padding: 0 6px; border-radius: 8px; background: var(--teal-soft); color: var(--teal-ink); }
 .mem-mark { flex-shrink: 0; display: inline-flex; padding: 0 4px; color: var(--gold-deep); }
 .prep { display: flex; flex-direction: column; gap: 12px; padding-top: 16px; padding-bottom: 20px; }
 .prep .say-kk { font-size: 26px; }
@@ -626,5 +648,5 @@ button.vplay { cursor: pointer; }
   }
   window.botaBoot = setTimeout(botaFail, 10000);
 </script>
-<script type="module" src="./app.js?v=a2db0d0" onerror="botaFail()"></script>
+<script type="module" src="./app.js?v=2ddb43c" onerror="botaFail()"></script>
 </body></html>

@@ -1,12 +1,13 @@
 // Бота — MVP: conversational Kazakh for Russian speakers.
 import { html, render, useState, useEffect, useRef, useMemo, useErrorBoundary } from 'https://cdn.jsdelivr.net/npm/htm@3.1.1/preact/standalone.module.js';
-import { KINDS, CITIES, JOBS, HOBBIES, CHOICES, PEOPLE, PHRASES, TOPICS, LEVELS, RULES, RESCUE, PHRASEBOOK, BABY, BABY_GROUPS, BABY_AGES, BABY_GOAL, BABY_NOW, FACTS, RACE_APART } from './content.js?v=a2db0d0';
-import * as fsrs from './fsrs.js?v=a2db0d0';
-import * as voice from './voice.js?v=a2db0d0';
-import * as mic from './mic.js?v=a2db0d0';
-import * as stats from './stats.js?v=a2db0d0';
-import { KZ_LETTERS, checkTyped, normType, plain, syllables, fillSlot } from './typing.js?v=a2db0d0';
-import { Icon, PlayGlyph, SpeakerGlyph, Sun, Logo, Bota, Avatar, Yurt, Photo, Shanyrak, Wave } from './art.js?v=a2db0d0';
+import { KINDS, CITIES, JOBS, HOBBIES, CHOICES, PEOPLE, PHRASES, TOPICS, LEVELS, RULES, RESCUE, PHRASEBOOK, BABY, BABY_GROUPS, BABY_AGES, BABY_GOAL, BABY_NOW, FACTS, RACE_APART } from './content.js?v=2ddb43c';
+import * as fsrs from './fsrs.js?v=2ddb43c';
+import * as voice from './voice.js?v=2ddb43c';
+import * as mic from './mic.js?v=2ddb43c';
+import * as stats from './stats.js?v=2ddb43c';
+import { KZ_LETTERS, checkTyped, normType, plain, syllables, fillSlot } from './typing.js?v=2ddb43c';
+import { CHECKS, BLOCK, SIZE, PLACE_ASK, PLACE_PASS, checkItems, placeItems, need, passes } from './exam.js?v=2ddb43c';
+import { Icon, PlayGlyph, SpeakerGlyph, Sun, Logo, Bota, Avatar, Yurt, Photo, Shanyrak, Wave } from './art.js?v=2ddb43c';
 
 // The version of the app: tools/site.mjs gives every module address ?v=<commit>.
 const VERSION = new URL(import.meta.url).searchParams.get('v') || 'dev';
@@ -44,6 +45,12 @@ function fresh() {
     // «Бәйге»: the best time of every race (a topic id, or mix), how often each word was mixed up,
     // and the name of the last rival in a duel on this phone.
     race: { best: {}, miss: {}, runs: 0, rival: '' },
+    // Рубежи by id (mvp/exam.js): day — first finished, pass — first passed (by: 'test' — passed by
+    // the entrance test, not by an attempt), ok and of — the last attempt, best — its best share,
+    // n — attempts, blocks — the last attempt by the blocks of КАЗТЕСТ ({ listen: [ok, of], … }).
+    checks: {},
+    // The entrance test: day — when, at — the stretch of topics (the рубеж) it started the learner at.
+    place: { day: '', at: 0 },
     // trAuto: translations under every line from the start; otherwise a tap on a line shows its own.
     // mic: «Скажи вслух» records the phrase with the microphone where the browser allows it.
     // stats: the learner agreed to the anonymous statistics of the pilot (stats.js).
@@ -97,6 +104,8 @@ function normalize(d) {
       best: counts(race.best), miss: counts(race.miss), runs: Number.isFinite(race.runs) ? race.runs : 0,
       rival: typeof race.rival === 'string' ? race.rival.slice(0, 24) : '',
     },
+    checks: Object.fromEntries(Object.entries(obj(d.checks)).filter(([, c]) => isObj(c))),
+    place: { ...base.place, ...obj(d.place) },
     settings: { ...base.settings, ...obj(d.settings) },
     seen: { ...base.seen, ...obj(d.seen) },
   };
@@ -143,6 +152,16 @@ function mergeProgress(here, there) {
   Object.entries(there.race.miss).forEach(([k, n]) => { out.race.miss[k] = Math.max(out.race.miss[k] || 0, n); });
   out.race.runs = Math.max(out.race.runs, there.race.runs);
   out.race.rival = out.race.rival || there.race.rival;
+  // A рубеж keeps the earlier dates, the best result and the later attempt of the two.
+  Object.entries(there.checks).forEach(([id, c]) => {
+    const h = out.checks[id] || {};
+    const later = (h.n || 0) >= (c.n || 0) ? h : c;
+    const day = earlier(h.day, c.day) || '';
+    const pass = earlier(h.pass, c.pass) || '';
+    out.checks[id] = { day, pass, best: Math.max(h.best || 0, c.best || 0), n: Math.max(h.n || 0, c.n || 0),
+      ok: later.ok, of: later.of, blocks: later.blocks, by: pass && !day ? 'test' : '' };
+  });
+  if (!out.place.day || (there.place.day && there.place.day > out.place.day)) out.place = { ...there.place };
   return out;
 }
 
@@ -636,28 +655,67 @@ const ALL_CONVS = PLAYABLE.flatMap((t, ti) => t.convs.map((c, ci) => ({ t, ti, c
 const levelOf = (id) => LEVELS.find((l) => l.id === id) || LEVELS[0];
 const OPEN_LEVELS = LEVELS.filter((l) => !l.soon);
 
+// Рубежи (mvp/exam.js) stand on the way after every 3–4 topics. A рубеж passed — by an attempt or
+// by the entrance test — makes its topics known: their lessons open, done or not. One taken (finished
+// once, passed or not) opens the topics after it.
+const TOPIC_BY_ID = new Map(PLAYABLE.map((t) => [t.id, t]));
+const CP_AFTER = new Map(CHECKS.map((cp) => [cp.topics[cp.topics.length - 1], cp]));
+const cpById = (id) => CHECKS.find((cp) => cp.id === id) || null;
+const cpState = (st, cp) => st.checks[cp.id] || {};
+const cpTaken = (st, cp) => !!(cpState(st, cp).day || cpState(st, cp).pass);
+const topicKnown = (st, t) => CHECKS.some((cp) => cp.topics.includes(t.id) && cpState(st, cp).pass);
+const lessonKnown = (st, x) => !!st.done[x.c.id] || topicKnown(st, x.t);
+const topicDone = (st, t) => t.convs.filter((c) => st.done[c.id]).length;
+// A topic behind: every lesson done, or known.
+const topicFull = (st, t) => topicKnown(st, t) || topicDone(st, t) === t.convs.length;
+// A рубеж can be taken once every topic before it is behind.
+const cpOpen = (st, cp) => cp.topics.every((id) => topicFull(st, TOPIC_BY_ID.get(id)));
+
 // Lessons open one after another; the first lesson of every level is open from the start,
-// so a learner who knows the basics can begin with the city.
+// so a learner who knows the basics can begin with the city. The first lesson after a рубеж
+// waits for it to be taken; lessons already done stay open.
 function convOpen(st, ti, ci) {
   const idx = ALL_CONVS.findIndex((x) => x.ti === ti && x.ci === ci);
-  if (idx <= 0) return true;
+  const cur = ALL_CONVS[idx];
+  if (idx <= 0 || st.done[cur.c.id] || topicKnown(st, cur.t)) return true;
   const prev = ALL_CONVS[idx - 1];
-  if (prev.t.level !== ALL_CONVS[idx].t.level) return true;
-  return !!st.done[ALL_CONVS[idx].c.id] || !!st.done[prev.c.id];
+  if (prev.t.level !== cur.t.level) return true;
+  if (!lessonKnown(st, prev)) return false;
+  const cp = ci === 0 ? CP_AFTER.get(prev.t.id) : null;
+  return !cp || cpTaken(st, cp);
 }
 
 const isSkill = (c) => c.kind === 'pron' || c.kind === 'write';
 
-// The lesson after the furthest one done (in one level, or in the whole course);
-// lessons left behind come after the end.
+// The way through the course: the lessons, and a рубеж after the last lesson of its last topic
+// ({ cp, t } — t is that topic, for its level).
+const PATH = ALL_CONVS.flatMap((x) => (x.ci === x.t.convs.length - 1 && CP_AFTER.has(x.t.id) ? [x, { cp: CP_AFTER.get(x.t.id), t: x.t }] : [x]));
+const stepBehind = (st, x) => (x.cp ? cpTaken(st, x.cp) : lessonKnown(st, x));
+
+// The step after the furthest one behind — a lesson or a рубеж, in one level or in the whole course;
+// steps left behind come after the end.
 function nextUp(st, level) {
-  const list = level ? ALL_CONVS.filter((x) => x.t.level === level) : ALL_CONVS;
+  const list = level ? PATH.filter((x) => x.t.level === level) : PATH;
   let last = -1;
-  list.forEach((x, i) => { if (st.done[x.c.id]) last = i; });
-  return list[last + 1] || list.find((x) => !st.done[x.c.id]) || null;
+  list.forEach((x, i) => { if (stepBehind(st, x)) last = i; });
+  return list[last + 1] || list.find((x) => !stepBehind(st, x)) || null;
 }
 
-const topicDone = (st, t) => t.convs.filter((c) => st.done[c.id]).length;
+// Where a step leads: a lesson or a рубеж.
+const goStep = (go, nx) => (nx.cp ? go('test', { id: nx.cp.id }) : go('conv', { ti: nx.ti, ci: nx.ci }));
+// «Дальше: …» after a lesson or a test, from the topic ti.
+function stepLabel(nx, ti) {
+  if (!nx) return 'Вернуться в «Мой круг»';
+  if (nx.cp) return nx.cp.final ? 'Дальше: итог круга' : 'Дальше: рубеж';
+  return nx.ti === ti ? `Дальше: ${KINDS[nx.c.kind].label.toLowerCase()}` : `Новая тема: ${nx.t.title.toLowerCase()}`;
+}
+const TOPIC_W = ['тема', 'темы', 'тем'];
+const Q_W = ['вопрос', 'вопроса', 'вопросов'];
+const cpSize = (cp) => SIZE[cp.final ? 'final' : 'check'];
+const listNames = (names) => (names.length > 1 ? `${names.slice(0, -1).join(', ')} и ${names[names.length - 1]}` : names[0] || '');
+const cpPeople = (cp) => listNames(cp.topics.map((id) => PEOPLE[TOPIC_BY_ID.get(id).who].name));
+// «Рубеж после четырёх тем», «Итог круга «Близкие»».
+const cpTitle = (cp) => (cp.final ? `Итог круга «${levelOf(cp.level).title}»` : `Рубеж после ${cp.topics.length === 3 ? 'трёх' : 'четырёх'} тем`);
 
 // A card is due on its calendar day: «повторим завтра» means any time tomorrow, not the same hour.
 const dueByDay = (card, now) => !!card && dayKey(new Date(card.due)) <= dayKey(new Date(now));
@@ -763,6 +821,8 @@ function Onboard({ st, update, done }) {
   const [step, setStep] = useState(0);
   const [name, setName] = useState(st.profile.name || '');
   const [mode, setMode] = useState(st.profile.mode || 'talk');
+  // Someone who knows some Kazakh already takes the entrance test instead of the first conversation.
+  const [start, setStart] = useState('zero');
   const [minutes, setMinutes] = useState(st.profile.minutes || 10);
   // The pilot's anonymous statistics: asked on the first step, so that the rest of the way is seen too.
   const [share, setShare] = useState(true);
@@ -784,11 +844,12 @@ function Onboard({ st, update, done }) {
   };
   const toStep = (n) => { if (settled()) setStep(n); };
 
+  const test = mode === 'talk' && start === 'some';
   const finish = () => {
     if (!settled()) return;
     update((d) => { d.profile = { ...d.profile, name: clean, mode, minutes, onboarded: true }; });
-    stats.track('onboard', { mode, minutes });
-    done(mode);
+    stats.track('onboard', { mode, minutes, start: mode === 'talk' ? start : '' });
+    done(mode, test);
   };
   const nameDone = () => {
     if (!clean) return;
@@ -803,6 +864,10 @@ function Onboard({ st, update, done }) {
   const modes = [
     ['talk', 'Говорить по-казахски', 'с соседями, на работе, в городе'],
     ['baby', 'Говорить с малышом', 'фразы на каждый день для родителей'],
+  ];
+  const starts = [
+    ['zero', 'Начинаю с нуля', 'начнём с приветствий'],
+    ['some', 'Немного знаю', 'проверим уровень за 5 минут'],
   ];
 
   // Russian is the only language of explanations so far: there is nothing to choose yet, and Bota
@@ -823,7 +888,14 @@ function Onboard({ st, update, done }) {
       <div class="opts">${modes.map(([id, title, sub]) => html`
         <button type="button" class=${'opt mode' + (mode === id ? ' sel' : '')} aria-pressed=${mode === id} onClick=${() => setMode(id)}>
           <span>${title}</span><small>${sub}</small></button>`)}</div>
-      <button type="button" class="btn btn-primary btn-block" onClick=${() => { stats.track('onboard_mode', { mode }); toStep(2); }}>Дальше</button>
+      <button type="button" class="btn btn-primary btn-block" onClick=${() => { stats.track('onboard_mode', { mode }); toStep(mode === 'talk' ? 2 : 3); }}>Дальше</button>
+    </div>`;
+  } else if (step === 2) {
+    panel = html`<div class="panel-in">
+      <div class="opts">${starts.map(([id, title, sub]) => html`
+        <button type="button" class=${'opt mode' + (start === id ? ' sel' : '')} aria-pressed=${start === id} onClick=${() => setStart(id)}>
+          <span>${title}</span><small>${sub}</small></button>`)}</div>
+      <button type="button" class="btn btn-primary btn-block" onClick=${() => toStep(3)}>Дальше</button>
     </div>`;
   } else {
     panel = html`<div class="panel-in">
@@ -831,7 +903,7 @@ function Onboard({ st, update, done }) {
         <button type="button" class=${'min' + (minutes === m ? ' sel' : '')} aria-pressed=${minutes === m} onClick=${() => setMinutes(m)}>
           <b>${m}</b><span>минут</span></button>`)}</div>
       <span class="muted sm center">Это примерно ${minutes === 5 ? 'три урока' : minutes === 10 ? 'шесть уроков' : 'девять уроков'} в день</span>
-      <button type="button" class="btn btn-primary btn-block" onClick=${finish}>Начать</button>
+      <button type="button" class="btn btn-primary btn-block" onClick=${finish}>${test ? 'Проверить уровень' : 'Начать'}</button>
     </div>`;
   }
 
@@ -845,9 +917,10 @@ function Onboard({ st, update, done }) {
         ${step > 0 ? html`
           <div class="b b-me">${clean}</div>
           <${BotaSays}><span class="kk" lang="kk">Танысқаныма қуаныштымын, ${clean}!</span><span class="b-tr">Это «рад знакомству». Что хочешь уметь?</span><//>` : null}
-        ${step > 1 ? html`
-          <div class="b b-me">${modes.find((m) => m[0] === mode)[1]}</div>
-          <${BotaSays}>Сколько минут в день будем заниматься?<//>` : null}
+        ${step > 1 ? html`<div class="b b-me">${modes.find((m) => m[0] === mode)[1]}</div>` : null}
+        ${step > 1 && mode === 'talk' ? html`<${BotaSays}>Ты уже знаешь казахский?<//>` : null}
+        ${step > 2 && mode === 'talk' ? html`<div class="b b-me">${starts.find((m) => m[0] === start)[1]}</div>` : null}
+        ${step > 2 ? html`<${BotaSays}>${test ? 'Тогда после знакомства — короткий тест, чтобы начать с подходящей темы. ' : ''}Сколько минут в день будем заниматься?<//>` : null}
       </div>
     </div>
     <div class="composer pad">${panel}</div>
@@ -885,8 +958,33 @@ function AvatarRing({ who, size, status, frac }) {
 
 const levelFrac = (st, level) => {
   const list = ALL_CONVS.filter((x) => x.t.level === level);
-  return list.filter((x) => st.done[x.c.id]).length / list.length;
+  return list.filter((x) => lessonKnown(st, x)).length / list.length;
 };
+
+// A рубеж on the map: a small gold rhombus just outside the ring, between the people it comes
+// between (the итог — between the last person and the first). Grey until it can be taken, gold
+// once it can, dashed once taken but not passed, filled once passed.
+const CP_R = 144;
+const cpXY = (i, n, r = CP_R) => {
+  const a = ((-90 + (i * 360) / n) * Math.PI) / 180;
+  return [171 + r * Math.cos(a), 171 + r * Math.sin(a)];
+};
+function cpStatus(st, cp, nx) {
+  const c = cpState(st, cp);
+  if (c.pass) return 'pass';
+  if (nx && nx.cp === cp) return 'cur';
+  if (c.day) return 'taken';
+  return cpOpen(st, cp) ? 'open' : 'locked';
+}
+// How a рубеж stands, in a few words: for the map and the topic screen.
+function cpNote(st, cp, status) {
+  const c = cpState(st, cp);
+  const last = TOPIC_BY_ID.get(cp.topics[cp.topics.length - 1]);
+  if (status === 'pass') return c.of ? `взят: ${c.ok} из ${c.of}` : 'взят по входному тесту';
+  if (status === 'taken') return `${c.ok} из ${c.of} — возьмёшь от ${need(c.of)}, можно ещё раз`;
+  if (status === 'locked') return `после темы «${last.title}»: ${cpSize(cp)} ${plural(cpSize(cp), Q_W)} без перевода`;
+  return `${cpSize(cp)} ${plural(cpSize(cp), Q_W)} без перевода${cp.final ? ' по всем темам круга' : ''}`;
+}
 
 // One circle at a time: the people of the chosen level around the yurt. Earlier levels fold
 // into thin gold rings right around the yurt, the next level waits on the outer dashed ring: its
@@ -895,17 +993,26 @@ function CircleMap({ st, go, level }) {
   const lv = levelOf(level);
   const items = PLAYABLE.map((t, ti) => ({ t, ti })).filter((x) => x.t.level === level);
   const nx = nextUp(st, level);
-  const doneTopics = items.filter(({ t }) => topicDone(st, t) === t.convs.length).length;
+  const doneTopics = items.filter(({ t }) => topicFull(st, t)).length;
   const circ = 2 * Math.PI * RING_R;
   const frac = levelFrac(st, level);
   const after = LEVELS[LEVELS.indexOf(lv) + 1];
   const before = LEVELS.slice(0, LEVELS.indexOf(lv));
+  const gates = CHECKS.filter((cp) => cp.level === level).map((cp) => {
+    const at = items.findIndex(({ t }) => t.id === cp.topics[cp.topics.length - 1]) + 0.5;
+    return { cp, at, status: cpStatus(st, cp, nx) };
+  });
   return html`<div class="map">
     <svg class="map-svg" viewBox="0 0 342 342" aria-hidden="true">
       <circle cx="171" cy="171" r="160" class="ring2"></circle>
       <circle cx="171" cy="171" r=${RING_R} class="ring1"></circle>
       ${frac > 0 ? html`<circle cx="171" cy="171" r=${RING_R} class="ring1-done"
         stroke-dasharray=${`${(circ * frac).toFixed(1)} ${circ.toFixed(1)}`} transform="rotate(-90 171 171)"></circle>` : null}
+      ${gates.map(({ at, status }) => {
+        const [x1, y1] = cpXY(at, items.length, RING_R + 3);
+        const [x2, y2] = cpXY(at, items.length, CP_R - 11);
+        return html`<line x1=${x1.toFixed(1)} y1=${y1.toFixed(1)} x2=${x2.toFixed(1)} y2=${y2.toFixed(1)} class=${'cp-tick' + (status === 'locked' ? '' : ' on')}></line>`;
+      })}
       ${before.map((l, i) => {
         const r = 72 + i * 7;
         const len = 2 * Math.PI * r;
@@ -922,14 +1029,23 @@ function CircleMap({ st, go, level }) {
     ${items.map(({ t, ti }, i) => {
       const n = topicDone(st, t);
       const isCur = !!nx && nx.ti === ti;
-      const status = n === t.convs.length ? 'done' : isCur ? 'cur' : convOpen(st, ti, 0) ? 'open' : 'locked';
+      const known = topicKnown(st, t) && n < t.convs.length;
+      const status = n === t.convs.length || (known && !isCur) ? 'done' : isCur ? 'cur' : convOpen(st, ti, 0) ? 'open' : 'locked';
       const [x, y] = slotXY(i, items.length);
       const size = isCur ? 56 : 40;
       // The current person's name is on the card below the map, so the map carries no labels.
       return html`<button type="button" class=${'av-btn' + (isCur ? ' cur' : '')}
         style=${`left:${((x / 342) * 100).toFixed(2)}%;top:${((y / 342) * 100).toFixed(2)}%;--half:${size / 2}px`}
-        aria-label=${`${PEOPLE[t.who].name}: ${t.title}, ${status === 'locked' ? 'откроется позже' : `${n} из ${t.convs.length}`}`} onClick=${() => go('topic', { ti })}>
+        aria-label=${`${PEOPLE[t.who].name}: ${t.title}, ${status === 'locked' ? 'откроется позже' : known ? 'знакомая тема' : `${n} из ${t.convs.length}`}`} onClick=${() => go('topic', { ti })}>
         <${AvatarRing} who=${t.who} size=${size} status=${status} frac=${n / t.convs.length} />
+      </button>`;
+    })}
+    ${gates.map(({ cp, at, status }) => {
+      const [x, y] = cpXY(at, items.length);
+      return html`<button type="button" class=${`cp-btn ${status}${cp.final ? ' final' : ''}`} disabled=${status === 'locked'}
+        style=${`left:${((x / 342) * 100).toFixed(2)}%;top:${((y / 342) * 100).toFixed(2)}%`}
+        aria-label=${`${cp.final ? 'Итог круга' : 'Рубеж'}: ${cpNote(st, cp, status)}`} onClick=${() => go('test', { id: cp.id })}>
+        <span class="cp-mark">${status === 'pass' ? html`<${Icon} name="check" size=${10} stroke=${4} />` : null}</span>
       </button>`;
     })}
   </div>`;
@@ -942,6 +1058,17 @@ function NextCard({ st, go, level, setLevel }) {
     const after = LEVELS[LEVELS.indexOf(lv) + 1];
     const count = PLAYABLE.filter((t) => t.level === level).length;
     const open = after && !after.soon;
+    // Every step is behind, but the итог круга is not passed yet: the circle closes with it.
+    const fin = CHECKS.find((cp) => cp.level === level && cp.final);
+    const fs = fin ? cpState(st, fin) : {};
+    if (fin && !fs.pass) {
+      return html`<section class="card next">
+        <span class="muted sm">${lv.id} · итог круга: ${fs.ok} из ${fs.of}</span>
+        <b class="h3">Круг закроется от ${need(fs.of)} из ${fs.of}. Освежи фразы — и попробуй ещё раз</b>
+        <button type="button" class="btn btn-primary btn-block" onClick=${() => go('test', { id: fin.id })}><${Icon} name="gate" size=${20} /> Пройти итог ещё раз</button>
+        <${LinkRow} items=${[dueList(st).length && ['Освежить память', () => go('review')], open && [`Круг «${after.title}»`, () => setLevel(after.id)]]} />
+      </section>`;
+    }
     return html`<section class="card next">
       <span class="muted sm">${lv.id} · все ${count} тем пройдены</span>
       <b class="h3">Круг ${lv.of} пройден!${after ? ` Следующий круг — ${after.title.toLowerCase()}, ${after.id}${open ? '' : ' — готовится'}` : ''}</b>
@@ -950,28 +1077,40 @@ function NextCard({ st, go, level, setLevel }) {
     </section>`;
   }
   const first = Object.keys(st.done).length === 0;
-  const kind = nx.c.kind;
-  const lesson = () => go('conv', { ti: nx.ti, ci: nx.ci });
+  const step = () => goStep(go, nx);
+  const cp = nx.cp;
   if (reviewFirst(st)) {
     const due = dueList(st);
     return html`<section class="card next">
-      <span class="muted sm">сначала — память, потом ${isSkill(nx.c) ? 'урок' : 'разговор'}</span>
+      <span class="muted sm">сначала — память, потом ${cp ? (cp.final ? 'итог круга' : 'рубеж') : isSkill(nx.c) ? 'урок' : 'разговор'}</span>
       <b class="h3">${cardsText(due)} ${agree(due, 'ждёт', 'ждут')} повторения</b>
       <button type="button" class="btn btn-primary btn-block" onClick=${() => go('review')}><${Icon} name="ornament" size=${20} /> Освежить память</button>
-      <span class="done-links"><button type="button" class="link-btn" onClick=${lesson}>${isSkill(nx.c) ? 'Сразу к уроку' : 'Сразу к разговору'}</button></span>
+      <${LinkRow} items=${[[cp ? (cp.final ? 'Сразу к итогу круга' : 'Сразу к рубежу') : isSkill(nx.c) ? 'Сразу к уроку' : 'Сразу к разговору', step]]} />
     </section>`;
   }
+  if (cp) {
+    return html`<section class="card next">
+      <span class="muted sm">${cp.final ? `итог круга · ${cpSize(cp)} ${plural(cpSize(cp), Q_W)} по всем темам` : `рубеж · ${cp.topics.length} ${plural(cp.topics.length, TOPIC_W)} позади`}</span>
+      <b class="h3">${cp.final ? 'Слушать, читать, писать и говорить — как в блоках КАЗТЕСТ' : `${cpPeople(cp)} спросят, что запомнилось`}</b>
+      <button type="button" class="btn btn-primary btn-block" onClick=${step}><${Icon} name="gate" size=${20} /> ${cp.final ? 'Начать итог круга' : 'Начать рубеж'}</button>
+    </section>`;
+  }
+  const kind = nx.c.kind;
+  // A newcomer who knows some Kazakh already can start further on.
+  const placeLink = first && !st.place.day ? [['Уже знаю основы — проверить уровень', () => go('test', { id: 'place' })]] : [];
   return html`<section class="card next">
     <span class="muted sm">${nx.t.title.toLowerCase()} · урок ${nx.ci + 1} из ${nx.t.convs.length}</span>
     <b class="h3">${nextTitle(nx)}</b>
-    <button type="button" class="btn btn-primary btn-block" onClick=${lesson}>
+    <button type="button" class="btn btn-primary btn-block" onClick=${step}>
       <${Icon} name=${isSkill(nx.c) ? KINDS[kind].icon : 'chat'} size=${20} /> ${first ? 'Начать первый разговор' : isSkill(nx.c) ? 'Начать урок' : 'Продолжить разговор'}
     </button>
+    <${LinkRow} items=${placeLink} />
   </section>`;
 }
 
-// What the next lesson is, said as an invitation of its person.
+// What the next step is, said as an invitation of its person (a рубеж — by its name).
 function nextTitle(nx) {
+  if (nx.cp) return cpTitle(nx.cp);
   const p = PEOPLE[nx.t.who];
   const kind = nx.c.kind;
   return kind === 'pron' ? `Урок произношения: ${lc(nx.c.title)}`
@@ -1001,8 +1140,10 @@ let homeLevel = null;
 // The minutes chosen at the start make the daily goal: a lesson takes 1–2 minutes.
 const GOAL_LESSONS = { 5: 3, 10: 6, 15: 9 };
 const goalOf = (st) => GOAL_LESSONS[st.profile.minutes] || 6;
-// Lessons done for the first time today, and memory reviews finished today: a review is a lesson too.
-const doneToday = (st) => Object.values(st.done).filter((d) => d === dayKey()).length + (st.reviews[dayKey()] || 0);
+// Lessons and рубежи done for the first time today, and memory reviews finished today: a review is a
+// lesson too.
+const doneToday = (st) => Object.values(st.done).filter((d) => d === dayKey()).length + (st.reviews[dayKey()] || 0)
+  + Object.values(st.checks).filter((c) => c.day === dayKey()).length;
 
 function Home({ st, go, update }) {
   const v = varsOf(st);
@@ -1042,29 +1183,45 @@ function TopicScreen({ st, ti, go }) {
   const rows = t.convs.map((c, ci) => ({ c, ci, done: !!st.done[c.id], open: convOpen(st, ti, ci) }));
   const target = rows.find((r) => r.open && !r.done);
   const learn = [...new Set(t.convs.flatMap((c) => c.teaches || []))].map((id) => phrase(id)).filter(Boolean).slice(0, 6);
-  // A topic that is not open yet sends the learner to the lesson that opens it, not into a locked one.
+  // A topic that is not open yet sends the learner to the step that opens it, not into a locked one.
   const before = !target && !rows.every((r) => r.done) ? nextUp(st, t.level) : null;
   const race = raceOpen(st, t);
-  // A topic passed in full offers its race; its lessons stay in the list to go through again.
+  // A topic passed in full offers its рубеж when that comes next, otherwise its race; its lessons
+  // stay in the list to go through again.
   const passed = !target && !before;
+  const cp = CP_AFTER.get(t.id);
+  const cps = cp ? cpStatus(st, cp, nextUp(st, t.level)) : '';
+  const gate = passed && (cps === 'cur' || cps === 'open') ? cp : null;
+  // Known by the entrance test: every lesson open, none done yet.
+  const known = topicKnown(st, t) && rows.some((r) => !r.done);
   const cta = target ? `Начать: ${KINDS[target.c.kind].label.toLowerCase()}`
-    : before ? `Сначала: ${before.t.title.toLowerCase()}` : race ? 'Бәйге — скачки по теме' : 'Пройти тему ещё раз';
-  const start = target || before || { ti, ci: 0 };
-  const onCta = () => (passed && race ? go('race', { ti }) : go('conv', { ti: start.ti ?? ti, ci: start.ci }));
+    : before ? `Сначала: ${before.cp ? (before.cp.final ? 'итог круга' : 'рубеж') : before.t.title.toLowerCase()}`
+      : gate ? (gate.final ? 'Начать итог круга' : 'Начать рубеж') : race ? 'Бәйге — скачки по теме' : 'Пройти тему ещё раз';
+  const onCta = () => (target ? go('conv', { ti, ci: target.ci }) : before ? goStep(go, before)
+    : gate ? go('test', { id: gate.id }) : race ? go('race', { ti }) : go('conv', { ti, ci: 0 }));
   return html`<main class="screen">
     <${TopBar} title=${t.title} sub=${t.kk} subLang="kk" onBack=${() => go('home')} backLabel="Вернуться в «Мой круг»" />
     <div class="scroll pad topic">
       <div class="person"><${Avatar} who=${t.who} size=${64} />
         <span><b class="h3">${p.name}</b><span class="muted sm">${p.ru} · ${t.convs.length} ${plural(t.convs.length, LESSON_W)} по 1–2 минуты</span></span></div>
+      ${known ? html`<span class="mem-note"><${Icon} name="gate" size=${18} />Знакомая тема по входному тесту: уроки открыты, можно пройти любой.</span>` : null}
       <ol class="conv-list">${rows.map((r) => html`<li>
-        <button type="button" class=${'conv-row ' + (r.done ? 'done' : r.open ? 'open' : 'locked')} disabled=${!r.open} onClick=${() => go('conv', { ti, ci: r.ci })}>
+        <button type="button" class=${'conv-row ' + (r.done ? 'done' : r === target ? 'open' : r.open ? '' : 'locked')} disabled=${!r.open} onClick=${() => go('conv', { ti, ci: r.ci })}>
           <span class="conv-ic"><${Icon} name=${KINDS[r.c.kind].icon} size=${20} /></span>
           <span class="grow"><b>${KINDS[r.c.kind].label}</b><span class="muted sm">${r.c.title}</span></span>
           ${r.done ? html`<span class="state ok" aria-label="пройден"><${Icon} name="check" size=${16} stroke=${3} /></span>`
-            : r.open ? html`<span class="state now">сейчас</span>`
+            : r === target ? html`<span class="state now">сейчас</span>`
+            : r.open ? html`<span class="state"><${Icon} name="next" size=${18} stroke=${2.4} /></span>`
             : html`<span class="state" aria-label="закрыт"><${Icon} name="lock" size=${16} /></span>`}
         </button></li>`)}</ol>
-      ${race && !passed ? html`<button type="button" class="conv-row race-row" onClick=${() => go('race', { ti })}>
+      ${cp ? html`<button type="button" class=${'conv-row cp-row' + (cps === 'locked' ? ' locked' : '')} disabled=${cps === 'locked'} onClick=${() => go('test', { id: cp.id })}>
+        <span class="conv-ic"><${Icon} name="gate" size=${20} /></span>
+        <span class="grow"><b>${cp.final ? 'Итог круга' : 'Рубеж'}</b><span class="muted sm">${cpNote(st, cp, cps)}</span></span>
+        ${cps === 'pass' ? html`<span class="state gold" aria-label="взят"><${Icon} name="check" size=${16} stroke=${3} /></span>`
+          : cps === 'locked' ? html`<span class="state" aria-label="закрыт"><${Icon} name="lock" size=${16} /></span>`
+          : html`<span class="state"><${Icon} name="next" size=${18} stroke=${2.4} /></span>`}
+      </button>` : null}
+      ${race && (!passed || gate) ? html`<button type="button" class="conv-row race-row" onClick=${() => go('race', { ti })}>
         <span class="conv-ic"><${Icon} name="flag" size=${20} /></span>
         <span class="grow"><b><span lang="kk">Бәйге</span> по теме</b><span class="muted sm">${st.race.best[t.id]
           ? `${t.words.length} пар на время · рекорд ${raceTime(st.race.best[t.id])}` : `скачки: ${t.words.length} пар слов на время`}</span></span>
@@ -1197,25 +1354,49 @@ function Msg({ m, tr, all, hint, topic, onRule, onTr, onShow }) {
 // Answers are judged the chat way: a wrong option gets a dashed frame and Bota explains it in the
 // chat (onHint), the right one goes on with the conversation. No green or red plates.
 
+// A row of quiet links under a panel: [label, onClick] pairs; empty ones are left out.
+function LinkRow({ items }) {
+  const list = items.filter(Boolean);
+  if (!list.length) return null;
+  return html`<span class="done-links">${list.map(([label, on], i) => html`${i ? html`<span aria-hidden="true">·</span>` : null}<button type="button" class="link-btn" onClick=${on}>${label}</button>`)}</span>`;
+}
+
+// In a test (a рубеж, the entrance test) every question has one answer. A wrong one is explained by
+// Bota, the right option is framed and «Дальше» goes on; «Не знаю» shows the right one at once.
+// onDone(true) — right, onDone(false) — not.
+
 // listen: a question about what was heard; with a Kazakh voice a wrong answer suggests listening again.
 // slowly: plays the lines of the question once more, slowly; onDeaf: «Сейчас не могу слушать» — the
 // rest of the lesson in text.
-function CheckPanel({ step, listen, auto, slowly, onDeaf, onDone, onHint }) {
+function CheckPanel({ step, listen, auto, slowly, onDeaf, onDone, onHint, test }) {
   // Syllables of a word keep their order; other answers are shuffled.
   const order = useMemo(() => (step.keep ? step.opts.map((_, i) => i) : shuffle(step.opts.map((_, i) => i))), []);
   const [tried, setTried] = useState([]);
   const [right, setRight] = useState(-1);
+  const [missed, setMissed] = useState(false);
+  const okAt = step.opts.findIndex((o) => o.ok);
   const choose = (i) => {
     if (right >= 0) return;
     const x = step.opts[i];
     if (x.ok) {
       setRight(i);
       if (auto && (step.speak || step.kk)) voice.speak(step.speak || x.t);
-      setTimeout(onDone, 650);
+      setTimeout(() => onDone(true), 650);
       return;
     }
     if (!tried.includes(i)) setTried([...tried, i]);
+    if (test) {
+      setRight(okAt);
+      setMissed(true);
+      onHint(x.why);
+      return;
+    }
     onHint(`${x.why}${listen && !step.kk && voice.available() ? ' Послушай ещё раз.' : ''}`);
+  };
+  const dunno = () => {
+    if (right >= 0) return;
+    setRight(okAt);
+    setMissed(true);
   };
   return html`<div class="panel-in">
     <div class="say-head"><span class="eyebrow">ВОПРОС</span>
@@ -1226,35 +1407,46 @@ function CheckPanel({ step, listen, auto, slowly, onDeaf, onDone, onHint }) {
       const state = right === i ? ' good' : tried.includes(i) ? ' bad' : '';
       return html`<button type="button" class=${'opt' + (step.kk ? ' kk' : '') + state} lang=${step.kk ? 'kk' : null} onClick=${() => choose(i)}><span>${x.t}</span></button>`;
     })}</div>
-    ${onDeaf ? html`<span class="done-links"><button type="button" class="link-btn" onClick=${onDeaf}>Сейчас не могу слушать</button></span>` : null}
+    ${missed ? html`<button type="button" class="btn btn-primary btn-block" onClick=${() => onDone(false)}>Дальше</button>` : null}
+    <${LinkRow} items=${[test && !missed && right < 0 && ['Не знаю', dunno], onDeaf && !missed && ['Сейчас не могу слушать', onDeaf]]} />
   </div>`;
 }
 
-function PickPanel({ step, v, tr, onDone, onHint }) {
+function PickPanel({ step, v, tr, onDone, onHint, test }) {
   const order = useMemo(() => shuffle(step.pick.map((_, i) => i)), []);
   const [sel, setSel] = useState(-1);
   const [tried, setTried] = useState([]);
+  const [missed, setMissed] = useState(false);
+  const right = step.pick.find((o) => o.ok);
   const send = () => {
-    if (sel < 0) return;
+    if (sel < 0 || missed) return;
     const o = step.pick[sel];
     if (o.ok) {
-      onDone(o);
+      onDone(o, true);
       return;
     }
     if (!tried.includes(sel)) setTried([...tried, sel]);
     setSel(-1);
+    if (test) setMissed(true);
     onHint(val(o.why, v));
+  };
+  const dunno = () => {
+    setSel(-1);
+    setMissed(true);
   };
   return html`<div class="panel-in">
     <span class="eyebrow">ВЫБЕРИ ОТВЕТ</span>
     <div class="opts">${order.map((i) => {
       const x = step.pick[i];
-      const state = sel === i ? ' sel' : tried.includes(i) ? ' bad' : '';
-      return html`<button type="button" class=${'opt kk' + state} aria-pressed=${sel === i} onClick=${() => setSel(i)}>
+      const state = missed && x.ok ? ' good' : sel === i ? ' sel' : tried.includes(i) ? ' bad' : '';
+      return html`<button type="button" class=${'opt kk' + state} aria-pressed=${sel === i} onClick=${() => { if (!missed) setSel(i); }}>
         <span lang="kk">${val(x.kk, v)}</span>${tr ? html`<small>${val(x.ru, v)}</small>` : null}</button>`;
     })}</div>
-    <button type="button" class="btn btn-primary btn-block" disabled=${sel < 0} onClick=${send}>
-      <${Icon} name="send" size=${20} stroke=${2.4} /> Отправить</button>
+    ${missed
+      ? html`<button type="button" class="btn btn-primary btn-block" onClick=${() => onDone(right, false)}>Дальше</button>`
+      : html`<button type="button" class="btn btn-primary btn-block" disabled=${sel < 0} onClick=${send}>
+        <${Icon} name="send" size=${20} stroke=${2.4} /> Отправить</button>`}
+    <${LinkRow} items=${[test && !missed && ['Не знаю', dunno]]} />
   </div>`;
 }
 
@@ -1271,36 +1463,46 @@ function ChoosePanel({ step, v, tr, onDone }) {
   </div>`;
 }
 
-function BuildPanel({ step, v, tr, onDone, onHint }) {
+function BuildPanel({ step, v, tr, onDone, onHint, test }) {
   const answer = step.build.map((w) => fill(w, v));
   const bank = useMemo(() => shuffle([...answer, ...step.extra].map((w, id) => ({ w, id }))), []);
   const [draft, setDraft] = useState([]);
   const [wrong, setWrong] = useState(false);
+  const [missed, setMissed] = useState(false);
   const words = draft.map((id) => bank.find((b) => b.id === id).w);
   const extra = words.find((w) => step.why && step.why[w]);
-  const why = extra ? step.why[extra] : words.length < answer.length ? 'Не хватает слов — добавь ещё.' : val(step.order, v);
+  const short = !extra && words.length < answer.length;
+  const why = extra ? step.why[extra] : short ? 'Не хватает слов — добавь ещё.' : val(step.order, v);
   const send = () => {
-    if (!draft.length) return;
+    if (!draft.length || missed) return;
     if (words.join(' ') === answer.join(' ')) {
-      onDone();
+      onDone(true);
       return;
     }
     setWrong(true);
+    // In a test a phrase cut short is not an answer yet: it can still be finished.
+    if (test && !short) setMissed(true);
     onHint(why);
   };
+  const edit = (next) => { if (!missed) { setDraft(next); setWrong(false); } };
+  const text = val(step.text, v);
   return html`<div class="panel-in">
     <span class="eyebrow">СОБЕРИ ОТВЕТ${tr ? html`<span class="eyebrow-ru"> · «${val(step.ru, v)}»</span>` : null}</span>
     <div class="build-row">
       <div class=${'build-field' + (wrong ? ' bad' : '')} aria-label="Твой ответ" lang="kk">
         ${words.length ? draft.map((id, i) => html`<button type="button" class="wchip in" aria-label=${`Убрать «${words[i]}»`}
-          onClick=${() => { setDraft(draft.filter((x) => x !== id)); setWrong(false); }}>${words[i]}</button>`)
+          onClick=${() => edit(draft.filter((x) => x !== id))}>${words[i]}</button>`)
           : html`<span class="muted sm placeholder">Нажимай на слова ниже…</span>`}
       </div>
-      <button type="button" class="send-round" aria-label="Отправить ответ" disabled=${!draft.length} onClick=${send}>
-        <${Icon} name="send" size=${22} stroke=${2.4} /></button>
+      ${missed ? null : html`<button type="button" class="send-round" aria-label="Отправить ответ" disabled=${!draft.length} onClick=${send}>
+        <${Icon} name="send" size=${22} stroke=${2.4} /></button>`}
     </div>
-    <div class="bank" lang="kk">${bank.filter((b) => !draft.includes(b.id)).map((b) => html`
-      <button type="button" class="wchip" onClick=${() => { setDraft([...draft, b.id]); setWrong(false); }}>${b.w}</button>`)}</div>
+    ${missed
+      ? html`<div class="type-model"><span class="grow"><b class="kk" lang="kk">${text}</b></span><${SpeakBtn} text=${text} small /></div>
+        <button type="button" class="btn btn-primary btn-block" onClick=${() => onDone(false)}>Дальше</button>`
+      : html`<div class="bank" lang="kk">${bank.filter((b) => !draft.includes(b.id)).map((b) => html`
+        <button type="button" class="wchip" onClick=${() => edit([...draft, b.id])}>${b.w}</button>`)}</div>`}
+    <${LinkRow} items=${[test && !missed && ['Не знаю', () => setMissed(true)]]} />
   </div>`;
 }
 
@@ -1339,13 +1541,14 @@ const MIC_NOTE = {
 // chat then shows the phrase, with the sample next to the learner's own recording.
 // own (step.own, «Поговори без подсказок»): an answer in one's own words. No phrase to read: the
 // example (step.own) opens only on a tap, and after the answer Bota shows it in the chat.
-function SayPanel({ step, v, tr, st, recall, own, paused, onPause, onResume, onDone, onHint }) {
+// blind (a test): from the meaning alone — the phrase stays hidden; onGiveUp — «Не знаю».
+function SayPanel({ step, v, tr, st, recall, own, blind, paused, onPause, onResume, onDone, onHint, onGiveUp }) {
   const kk = val(own ? step.own : step.say, v);
   const syl = own ? '' : val(step.syl, v);
   const [example, setExample] = useState(false);
   // idle → opening (the browser turns the microphone on) → rec → idle
   const [stage, setStage] = useState('idle');
-  const [hidden, setHidden] = useState(false);
+  const [hidden, setHidden] = useState(!!blind);
   const [meter, setMeter] = useState([]);
   // What went wrong with the last try; stays in the panel, where the learner looks.
   const [status, setStatus] = useState('');
@@ -1391,8 +1594,8 @@ function SayPanel({ step, v, tr, st, recall, own, paused, onPause, onResume, onD
       voice.hold(false);
       if (alive.current) setStage('idle');
     };
-    // A try that did not work shows the phrase again, to read it once more.
-    const reveal = () => { if (alive.current) setHidden(false); };
+    // A try that did not work shows the phrase again, to read it once more — not in a test.
+    const reveal = () => { if (alive.current && !blind) setHidden(false); };
     r.done.then((res) => {
       settle();
       const drop = () => { if (res.url) URL.revokeObjectURL(res.url); };
@@ -1438,7 +1641,8 @@ function SayPanel({ step, v, tr, st, recall, own, paused, onPause, onResume, onD
     });
   };
 
-  const links = (items) => html`<span class="done-links">${items.map(([label, on], i) => html`${i ? html`<span aria-hidden="true">·</span>` : null}<button type="button" class="link-btn" onClick=${on}>${label}</button>`)}</span>`;
+  const giveUp = blind && onGiveUp ? [['Не знаю', onGiveUp]] : [];
+  const links = (items) => html`<${LinkRow} items=${[...items, ...giveUp]} />`;
   let action;
   if (trouble) {
     const note = MIC_NOTE[trouble] && (trouble === 'paused' || noteDue || failed) ? MIC_NOTE[trouble] : '';
@@ -1450,7 +1654,7 @@ function SayPanel({ step, v, tr, st, recall, own, paused, onPause, onResume, onD
       : html`<button type="button" class="btn btn-primary btn-block" onClick=${() => onDone(null)}><${Icon} name="mic" size=${20} /> ${own ? 'Я ответил(а) вслух' : 'Я сказал(а) вслух'}</button>`}
       ${note ? html`<span class="muted sm center" role="status">${trouble === 'blocked'
         ? html`Здесь микрофон недоступен — <a href=${SITE} target="_blank" rel="noopener">открой Боту по ссылке</a>, там запись работает.` : note}</span>` : null}
-      ${again.length ? links(again) : null}`;
+      ${links(again)}`;
   } else if (stage !== 'idle') {
     action = html`<div class="rec-row" role="status"><span class="rec-dot" aria-hidden="true"></span><span class="sm">${stage === 'opening' ? 'Включаю микрофон…' : 'Слушаю…'}</span>
         <span class="rec-meter" aria-hidden="true">${Array.from({ length: 24 }, (_, i) => html`<i style=${`height:${Math.round(4 + (meter[meter.length - 24 + i] || 0) * 22)}px`}></i>`)}</span></div>
@@ -1485,8 +1689,8 @@ function SayPanel({ step, v, tr, st, recall, own, paused, onPause, onResume, onD
     <div class="say-head"><span class="eyebrow">${recall ? 'СКАЖИ ПО ПАМЯТИ' : 'СКАЖИ ВСЛУХ'}</span>${hint ? html`<span class="muted sm">${hint}</span>` : null}</div>
     ${hidden ? html`<div class="say-card">
         <span class="say-mean">«${val(step.ru, v)}»</span>
-        <span class="muted sm">Скажи это по-казахски, не глядя на текст.</span>
-        <button type="button" class="link-btn peek" onClick=${() => setHidden(false)}>Подсмотреть</button>
+        <span class="muted sm">${blind ? 'Скажи это по-казахски.' : 'Скажи это по-казахски, не глядя на текст.'}</span>
+        ${blind ? null : html`<button type="button" class="link-btn peek" onClick=${() => setHidden(false)}>Подсмотреть</button>`}
       </div>`
       : html`<div class="say-card">
         <span class="say-kk" lang="kk">${kk}</span>
@@ -1543,17 +1747,25 @@ function PairPanel({ step, auto, onDone, onHint }) {
 // 2 after mistakes, 1 when the answer had to be shown, and the message as typed. Besides the
 // answer it accepts step.alt and the forms typing.js allows. A dictation step (A2) plays the
 // phrase instead of showing its meaning; without a Kazakh voice it falls back to the meaning.
-function TypePanel({ step, v, auto, onDone, onHint }) {
+// In a test one slip of Kazakh letters only («Асыгып» for «Асығып») gets a hint and a second try;
+// any other mistake shows the answer. onDone(grade, message, right).
+function TypePanel({ step, v, auto, onDone, onHint, test }) {
   const answer = val(step.type, v);
   const answers = [answer, ...(step.alt || []).map((a) => val(a, v))];
   const dict = !!step.dict && voice.canSay(answer);
   const [text, setText] = useState('');
   const [hint, setHint] = useState(false);
+  const [missed, setMissed] = useState(false);
   const input = useRef(null);
   // Refs, not state: a quick second Enter must see the attempt before it.
   const tries = useRef(0);
   const hinted = useRef(false);
   const sent = useRef(false);
+  const letters = useRef(false);
+  const miss = () => {
+    sent.current = true;
+    setMissed(true);
+  };
   const showHint = () => { hinted.current = true; setHint(true); };
   useEffect(() => {
     try { input.current.focus({ preventScroll: true }); } catch (e) { /* focus is a convenience */ }
@@ -1579,11 +1791,17 @@ function TypePanel({ step, v, auto, onDone, onHint }) {
     const res = checkTyped(typed, answers);
     if (res.ok) {
       sent.current = true;
-      onDone(hinted.current ? 1 : tries.current ? 2 : 3, cap(typed));
+      onDone(hinted.current ? 1 : tries.current ? 2 : 3, cap(typed), true);
       return;
     }
     tries.current += 1;
+    if (test && (!res.need || letters.current)) {
+      miss();
+      onHint(`Не совсем. Правильно так: «${answer}».`);
+      return;
+    }
     if (res.need) {
+      letters.current = true;
       const fix = [
         res.need.length ? `нужны казахские буквы: ${res.need.join(', ')}` : '',
         ...res.plainFor.map(([kz, ch]) => `«${ch}», а не «${kz}»`),
@@ -1597,15 +1815,18 @@ function TypePanel({ step, v, auto, onDone, onHint }) {
       onHint(`Не совсем. Начинается так: «${w.slice(0, Math.min(3, Math.ceil(w.length / 2)))}…»`);
     }
   };
+  const head = test
+    ? (missed ? null : html`<button type="button" class="btn-chip" onClick=${miss}>Не знаю</button>`)
+    : (hint ? null : html`<button type="button" class="btn-chip" onClick=${showHint}>Подсказка</button>`);
   return html`<form class="panel-in" onSubmit=${(e) => { e.preventDefault(); check(); }}>
-    <div class="say-head"><span class="eyebrow">${dict ? 'ЗАПИШИ НА СЛУХ' : 'НАПИШИ ПО-КАЗАХСКИ'}</span>
-      ${hint ? null : html`<button type="button" class="btn-chip" onClick=${showHint}>Подсказка</button>`}</div>
+    <div class="say-head"><span class="eyebrow">${dict ? 'ЗАПИШИ НА СЛУХ' : 'НАПИШИ ПО-КАЗАХСКИ'}</span>${head}</div>
     ${dict
       ? html`<div class="say-ctl">
           <button type="button" class="ctl" onClick=${() => voice.speak(answer)}><${SpeakerGlyph} size=${16} /> Послушать</button>
           <button type="button" class="ctl" onClick=${() => voice.slow(answer)}>Медленно</button></div>`
       : html`<p class="type-ask">«${val(step.ru, v)}»</p>`}
-    ${hint ? html`<div class="type-model"><span class="grow"><b class="kk" lang="kk">${answer}</b></span><${SpeakBtn} text=${answer} small /></div>` : null}
+    ${hint || missed ? html`<div class="type-model"><span class="grow"><b class="kk" lang="kk">${answer}</b></span><${SpeakBtn} text=${answer} small /></div>` : null}
+    ${missed ? html`<button type="button" class="btn btn-primary btn-block" onClick=${() => onDone(1, '', false)}>Дальше</button>` : html`
     <div class="kz-keys" role="group" aria-label="Казахские буквы">${KZ_LETTERS.map((ch) => html`
       <button type="button" class="kz-key" aria-label=${`Буква ${ch}`} onMouseDown=${(e) => e.preventDefault()} onClick=${() => insert(ch)}>${ch}</button>`)}</div>
     <div class="type-row">
@@ -1613,7 +1834,7 @@ function TypePanel({ step, v, auto, onDone, onHint }) {
       <input id="type-in" ref=${input} class="type-input" type="text" lang="kk" autocomplete="off" autocorrect="off" autocapitalize="sentences"
         spellcheck=${false} enterkeyhint="send" placeholder="Сообщение…" value=${text} onInput=${(e) => edit(e.target.value)} />
       <button type="submit" class="send-round" aria-label="Отправить" disabled=${!text.trim()}><${Icon} name="send" size=${22} stroke=${2.4} /></button>
-    </div>
+    </div>`}
   </form>`;
 }
 
@@ -1644,8 +1865,8 @@ function DonePanel({ st, update, conv, ti, ci, result, v, go, said }) {
   const topic = PLAYABLE[ti];
   const opened = result.first && ci === 2 && topic.words && topic.words.length;
   const nx = nextUp(st, PLAYABLE[ti].level) || nextUp(st);
-  const nextText = nx ? (nx.ti === ti ? `Дальше: ${KINDS[nx.c.kind].label.toLowerCase()}` : `Новая тема: ${nx.t.title.toLowerCase()}`) : null;
-  const toNext = () => (nx ? go('conv', { ti: nx.ti, ci: nx.ci }) : go('home'));
+  const nextText = nx ? stepLabel(nx, ti) : null;
+  const toNext = () => (nx ? goStep(go, nx) : go('home'));
   const note = result.added ? `${result.added} ${plural(result.added, PHR_W)} — в памяти, повторим завтра`
     : conv.kind === 'pron' ? 'Повторяй эти слова вслух — так звук закрепится'
     : conv.kind === 'write' ? `Без подсказки: ${result.clean} из ${result.typed}`
@@ -1947,6 +2168,318 @@ function ConvScreen({ st, update, ti, ci, go }) {
   </main>`;
 }
 
+/* ---------- рубежи and the entrance test ---------- */
+
+// The blocks of КАЗТЕСТ a result is told by (BLOCK in exam.js).
+const BLOCKS = [['listen', 'Слушать'], ['read', 'Читать'], ['write', 'Писать'], ['speak', 'Говорить']];
+// In a test every line shows its speaker: the people of several topics take part.
+const NOBODY = { who: '' };
+
+// The end of a test: how it went and the one next step. A рубеж not taken offers the memory first —
+// what was not right is due there today — and another try; the way on is open either way.
+function TestDone({ st, go, cp, res }) {
+  const nx = nextUp(st);
+  const toNext = () => (nx ? goStep(go, nx) : go('home'));
+  const home = ['В «Мой круг»', () => go('home')];
+  if (res.place) {
+    const known = PLAYABLE.filter((t) => topicKnown(st, t)).length;
+    const anew = !known && !Object.keys(st.done).length;
+    const head = !nx ? 'Ты знаешь все темы курса!' : anew ? 'Начнём с самого начала'
+      : nx.cp ? `Дальше — ${nx.cp.final ? 'итог круга' : 'рубеж'}` : `Твой старт — «${nx.t.title}»`;
+    const sub = !nx ? `Открыты все ${PLAYABLE.length} ${plural(PLAYABLE.length, TOPIC_W)}` : anew ? 'Первая тема — «Приветствия», с Әже'
+      : `${known ? `Знакомо ${known} ${plural(known, TOPIC_W)}` : 'Знакомых тем пока нет'} · круг «${levelOf(nx.t.level).title}»`;
+    const label = !nx ? 'Вернуться в «Мой круг»' : anew ? 'Начать первый разговор'
+      : nx.cp ? (nx.cp.final ? 'Начать итог круга' : 'Начать рубеж') : `Начать: ${nx.t.title}`;
+    return html`<div class="panel-in done">
+      <div class="done-head"><${Bota} size=${44} />
+        <span class="grow"><b class="h3">${head}</b><span class="gold-text sm">${sub}</span></span></div>
+      <span class="mem-note"><${Icon} name="gate" size=${20} />${anew ? 'Темы открываются по порядку, а после каждых 3–4 тем — рубеж.'
+        : 'Знакомые темы открыты: в них можно заглянуть, и бәйге по ним тоже открыта.'}</span>
+      <button type="button" class="btn btn-primary btn-block" onClick=${toNext}>${label}</button>
+      <${LinkRow} items=${[nx && home]} />
+    </div>`;
+  }
+  const lv = levelOf(cp.level);
+  const due = dueList(st).length;
+  const streak = streakOf(st.days);
+  const head = res.pass ? (cp.final ? `Круг «${lv.title}» пройден!` : 'Рубеж взят!') : `Пока ${res.ok} из ${res.n}`;
+  const sub = res.pass ? `${res.ok} из ${res.n} верно` : cp.final ? `Круг закроется от ${need(res.n)} из ${res.n}`
+    : `Рубеж — от ${need(res.n)} из ${res.n}; темы дальше уже открыты`;
+  const onward = !nx ? 'Вернуться в «Мой круг»' : nx.t.level !== cp.level ? `Новый круг: «${levelOf(nx.t.level).title}»` : stepLabel(nx, -1);
+  const again = ['Пройти ещё раз', () => go('test', { id: cp.id, k: Date.now() })];
+  const main = !res.pass && due ? ['Освежить память', () => go('review')] : [onward, toNext];
+  const links = res.pass ? [nx && home] : [again, due ? (nx ? [onward, toNext] : home) : nx && home];
+  return html`<div class="panel-in done">
+    <div class="done-head"><span class=${'cp-big' + (res.pass ? ' pass' : '')}><${Icon} name=${res.pass ? 'check' : 'gate'} size=${22} stroke=${res.pass ? 3.4 : 2} /></span>
+      <span class="grow"><b class="h3">${head}</b><span class="gold-text sm">${sub}</span>
+        ${res.closed ? html`<span class="gold-text sm">Цель дня выполнена · серия ${streak} ${plural(streak, DAY_W)}</span>` : null}</span></div>
+    ${cp.final ? html`<div class="blocks"><span class="eyebrow">ПО БЛОКАМ КАЗТЕСТ</span>
+      ${BLOCKS.filter(([b]) => res.blocks[b]).map(([b, label]) => html`<span class="block-row"><span>${label}${b === 'speak'
+        ? html`<span class="muted sm"> · по самооценке</span>` : null}</span><b>${res.blocks[b][0]} из ${res.blocks[b][1]}</b></span>`)}</div>` : null}
+    ${res.missed ? html`<span class="mem-note"><${Icon} name="ornament" size=${20} />${res.missed} ${plural(res.missed, PHR_W)} — в памяти, освежим сегодня</span>`
+      : res.ok === res.n ? html`<span class="mem-note"><${Icon} name="ornament" size=${20} />Ни одной ошибки!</span>` : null}
+    <button type="button" class="btn btn-primary btn-block" onClick=${main[1]}>${main[0]}</button>
+    <${LinkRow} items=${links} />
+  </div>`;
+}
+
+// A рубеж, an итог круга or the entrance test (id 'place'): a chat with the people of the course,
+// without translation. The questions are steps of the lessons (mvp/exam.js), one answer each. A рубеж
+// counts the right answers, brings back to the memory what was not right and is taken at 70%. The
+// entrance test asks up to three questions about one stretch of topics after another — two right go on,
+// two wrong stop it — and the stretches before the one it stops at become known.
+function TestScreen({ st, update, go, id }) {
+  const place = id === 'place';
+  const cp = place ? null : cpById(id);
+  const lv = cp ? levelOf(cp.level) : null;
+  // The entrance test starts at the first stretch not passed yet.
+  const [first] = useState(() => Math.max(0, CHECKS.findIndex((x) => !cpState(st, x).pass)));
+  const [items, setItems] = useState(() => (place ? placeItems(first) : checkItems(cp)));
+  const [idx, setIdx] = useState(0);
+  const [line, setLine] = useState(0);
+  // lines → ask → (self: check a phrase said aloud against the sample) → the next question
+  const [phase, setPhase] = useState('lines');
+  const [log, setLog] = useState(() => {
+    const n = items.length;
+    const hello = place ? 'Проверим, что ты уже знаешь: вопросы будут всё сложнее. Не уверен(а) — нажми «Не знаю», так тест точнее.'
+      : cp.final ? `Итог круга: ${n} ${plural(n, Q_W)} по всем его темам — слушать, читать, писать и говорить, как в блоках КАЗТЕСТ. Без перевода и подсказок.`
+        : `Рубеж: ${n} ${plural(n, Q_W)} от тех, с кем ты уже говорил(а). Без перевода и подсказок — что не вспомнится, вернётся в память.`;
+    return [{ k: 'tip', text: hello }, ...(items.length ? [{ k: 'note', text: TOPIC_BY_ID.get(items[0].topic).title }] : [])];
+  });
+  const [typing, setTyping] = useState(false);
+  const [result, setResult] = useState(null);
+  const [micPaused, setMicPaused] = useState(false);
+  const [deaf, setDeaf] = useState(false);
+  // The phrase said aloud, shown to check oneself against: { kk, gaveUp }.
+  const [said, setSaid] = useState(null);
+  const deafRef = useRef(false);
+  // The lines of this question came as voice messages: a question about them is listening.
+  const heard = useRef(false);
+  const marks = useRef([]);
+  const recordings = useRef([]);
+  const scroller = useRef(null);
+  const composer = useRef(null);
+  const lastTurn = useRef(0);
+  const t0 = useRef(Date.now());
+  const over = useRef(false);
+  const stRef = useRef(st);
+  stRef.current = st;
+  const it = items[idx];
+  const v = varsOf(st);
+
+  useEffect(() => {
+    stats.track('test', { id, kind: place ? 'place' : cp.final ? 'final' : 'check' });
+    return () => {
+      voice.stop();
+      mic.stopPlaying();
+      recordings.current.forEach((url) => URL.revokeObjectURL(url));
+      if (!over.current) stats.track('test_quit', { id, at: marks.current.length });
+    };
+  }, []);
+
+  // The lines of a question come one by one; a heard question («Послушай») brings them as voice messages.
+  useEffect(() => {
+    if (result || phase !== 'lines' || !it) return undefined;
+    if (line >= it.ctx.length) {
+      setPhase('ask');
+      return undefined;
+    }
+    let cancelled = false;
+    setTyping(true);
+    const timer = setTimeout(async () => {
+      const cur = stRef.current;
+      const s = it.ctx[line];
+      const msg = { k: 'npc', who: s.who || it.who, kk: val(s.npc, varsOf(cur)) };
+      // The entrance test voices only what is to be heard: the rest is read, so it stays short.
+      const sound = cur.settings.voice && !deafRef.current && voice.canSay(msg.kk) && (!place || it.kind === 'listen');
+      if (it.kind === 'listen' && sound) {
+        msg.hidden = true;
+        heard.current = true;
+      }
+      setTyping(false);
+      setLog((l) => [...l, msg]);
+      if (sound) await voice.say(msg.kk, 0.92);
+      if (!cancelled) setLine((n) => n + 1);
+    }, place ? 500 : line === 0 ? 700 : 900);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [idx, line, phase, result]);
+
+  const toBottom = () => {
+    const el = scroller.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  };
+  useEffect(toBottom, [log.length, typing, phase, result]);
+  useEffect(() => {
+    if (typeof ResizeObserver === 'undefined' || !composer.current) return undefined;
+    const ro = new ResizeObserver(toBottom);
+    ro.observe(composer.current);
+    return () => ro.disconnect();
+  }, []);
+  const panelKey = result ? 'done' : phase === 'lines' ? null : `${idx}-${phase}`;
+  useEffect(() => {
+    const box = composer.current;
+    if (panelKey === null || !box || box.querySelector('input')) return;
+    const btn = box.querySelector('button:not([disabled])');
+    if (btn) btn.focus({ preventScroll: true });
+  }, [panelKey]);
+
+  const openAll = (l) => (l.some((m) => m.hidden) ? l.map((m) => (m.hidden ? { ...m, hidden: false } : m)) : l);
+  const hint = (text) => setLog((l) => (l.length && l[l.length - 1].k === 'tip' && l[l.length - 1].text === text ? l : [...l, { k: 'tip', text }]));
+  const showLine = (i) => setLog((l) => l.map((m, j) => (j === i && m.hidden ? { ...m, hidden: false } : m)));
+  const cantListen = () => {
+    deafRef.current = true;
+    heard.current = false;
+    setDeaf(true);
+    voice.stop();
+    setLog(openAll);
+  };
+
+  function finishCheck() {
+    const all = marks.current;
+    const n = all.length;
+    const ok = all.filter((m) => m.ok).length;
+    const pass = passes(ok, n);
+    const cur = latest(stRef.current);
+    const was = cur.checks[cp.id] || {};
+    const firstTime = !was.day;
+    const before = doneToday(cur);
+    const closed = firstTime && before < goalOf(cur) && before + 1 >= goalOf(cur);
+    // What was not right comes back to the memory as a lapse, due at once: «Освежить память» right
+    // after the рубеж asks it.
+    const missed = [...new Set(all.filter((m) => !m.ok && m.ph).map((m) => m.ph))];
+    const blocks = Object.fromEntries(BLOCKS.map(([b]) => [b, [all.filter((m) => m.block === b && m.ok).length, all.filter((m) => m.block === b).length]]).filter(([, [, of]]) => of));
+    const now = Date.now();
+    update((d) => {
+      const w = d.checks[cp.id] || {};
+      d.checks[cp.id] = { ...w, day: w.day || dayKey(), pass: w.pass || (pass ? dayKey() : ''), by: '', ok, of: n, best: Math.max(w.best || 0, ok / n), n: (w.n || 0) + 1, blocks };
+      d.days[dayKey()] = true;
+      missed.forEach((ph) => { d.mem[ph] = { ...fsrs.review(d.mem[ph] || null, 1, now), due: now }; });
+    });
+    over.current = true;
+    stats.track('test_done', { id: cp.id, kind: cp.final ? 'final' : 'check', n, ok, pass, first: firstTime, closed, s: Math.round((now - t0.current) / 1000),
+      ...Object.fromEntries(Object.entries(blocks).map(([b, [r, of]]) => [b, `${r}/${of}`])) });
+    setLog(openAll);
+    setResult({ ok, n, pass, closed, missed: missed.length, blocks });
+  }
+
+  function finishPlace(at) {
+    const all = marks.current;
+    update((d) => {
+      CHECKS.slice(0, at).forEach((x) => {
+        const w = d.checks[x.id] || {};
+        if (!w.pass) d.checks[x.id] = { ...w, pass: dayKey(), by: w.day ? '' : 'test' };
+      });
+      d.place = { day: dayKey(), at };
+      d.days[dayKey()] = true;
+    });
+    over.current = true;
+    // start — the first topic of the stretch the learner starts at (end — the whole course is known).
+    stats.track('test_done', { id: 'place', kind: 'place', from: first, at, start: at < CHECKS.length ? CHECKS[at].topics[0] : 'end',
+      n: all.length, ok: all.filter((m) => m.ok).length, s: Math.round((Date.now() - t0.current) / 1000) });
+    setLog(openAll);
+    setResult({ place: true, at });
+  }
+
+  // One answer per question; then the next question, the next stretch of the entrance test, or the end.
+  const answered = (ok, add = []) => {
+    if (Date.now() - lastTurn.current < 350) return;
+    lastTurn.current = Date.now();
+    const block = it.kind === 'listen' && !heard.current ? 'read' : BLOCK[it.kind];
+    marks.current = [...marks.current, { ok, block, ph: it.ph, seg: it.seg }];
+    setLog((l) => [...openAll(l), ...add]);
+    setSaid(null);
+    let list = items;
+    if (place) {
+      // A stretch is decided as soon as it can be: two right — on to the next one, two wrong — the end.
+      // The third question comes only when the first two disagree.
+      const mine = marks.current.filter((m) => m.seg === it.seg);
+      const right = mine.filter((m) => m.ok).length;
+      const passed = right >= PLACE_PASS;
+      if (passed || mine.length - right > PLACE_ASK - PLACE_PASS || idx + 1 >= list.length) {
+        if (!passed || it.seg + 1 >= CHECKS.length) {
+          finishPlace(passed ? it.seg + 1 : it.seg);
+          return;
+        }
+        list = [...list.slice(0, idx + 1), ...placeItems(it.seg + 1)];
+        setItems(list);
+      }
+    } else if (idx + 1 >= list.length) {
+      finishCheck();
+      return;
+    }
+    const nextIt = list[idx + 1];
+    if (nextIt.topic !== it.topic) setLog((l) => [...l, { k: 'note', text: TOPIC_BY_ID.get(nextIt.topic).title }]);
+    heard.current = false;
+    setIdx(idx + 1);
+    setLine(0);
+    setPhase('lines');
+  };
+
+  let panel = null;
+  if (result) {
+    panel = html`<${TestDone} st=${st} go=${go} cp=${cp} res=${result} />`;
+  } else if (phase === 'self' && said) {
+    panel = html`<div class="panel-in">
+      <span class="eyebrow">${said.gaveUp ? 'ВОТ КАК ЭТО СКАЗАТЬ' : 'СВЕРЬ С ОБРАЗЦОМ'}</span>
+      <div class="say-card"><span class="say-kk own" lang="kk">${said.kk}</span>
+        ${voice.canSay(said.kk) ? html`<div class="say-ctl"><button type="button" class="ctl" onClick=${() => { mic.stopPlaying(); voice.speak(said.kk); }}>
+          <${SpeakerGlyph} size=${16} /> Послушать</button></div>` : null}</div>
+      ${said.gaveUp ? html`<button type="button" class="btn btn-primary btn-block" onClick=${() => answered(false)}>Дальше</button>`
+        : html`<div class="grades" role="group" aria-label="Получилось ли сказать">
+          <button type="button" class="grade" onClick=${() => answered(false)}><b>Не вспомнил(а)</b></button>
+          <button type="button" class="grade" onClick=${() => answered(true)}><b>Сказал(а) так же</b></button></div>`}
+    </div>`;
+  } else if (phase === 'ask' && !typing && it) {
+    const s = it.step;
+    if (it.kind === 'listen' || it.kind === 'ask') {
+      const lines = heard.current ? it.ctx.map((x) => val(x.npc, v)).filter((x) => voice.canSay(x)) : [];
+      panel = html`<${CheckPanel} key=${idx} step=${s} test listen=${it.kind === 'listen'} auto=${st.settings.voice} onHint=${hint}
+        slowly=${lines.length ? () => { mic.stopPlaying(); voice.sayAll(lines, 0.6); } : null}
+        onDeaf=${heard.current && !deaf ? cantListen : null} onDone=${(ok) => answered(ok)} />`;
+    } else if (it.kind === 'pick') {
+      panel = html`<${PickPanel} key=${idx} step=${s} v=${v} tr=${false} test onHint=${hint}
+        onDone=${(o, ok) => answered(ok, ok ? [{ k: 'me', kk: val(o.kk, v) }] : [])} />`;
+    } else if (it.kind === 'build') {
+      panel = html`<${BuildPanel} key=${idx} step=${s} v=${v} tr test onHint=${hint}
+        onDone=${(ok) => answered(ok, ok ? [{ k: 'me', kk: val(s.text, v) }] : [])} />`;
+    } else if (it.kind === 'write') {
+      panel = html`<${TypePanel} key=${idx} step=${s} v=${v} auto=${st.settings.voice} test onHint=${hint}
+        onDone=${(grade, message, ok) => answered(ok, ok ? [{ k: 'me', kk: message }] : [])} />`;
+    } else {
+      const kk = val(s.say, v);
+      panel = html`<${SayPanel} key=${idx} step=${s} v=${v} tr st=${st} recall blind paused=${micPaused} onHint=${hint}
+        onPause=${() => setMicPaused(true)} onResume=${() => setMicPaused(false)}
+        onGiveUp=${() => { setSaid({ kk, gaveUp: true }); setPhase('self'); }}
+        onDone=${(res) => {
+          if (res && res.url) recordings.current.push(res.url);
+          setLog((l) => [...l, { k: 'voice', kk, url: res && res.url, ms: res && res.ms, levels: res && res.levels }]);
+          setSaid({ kk });
+          setPhase('self');
+        }} />`;
+    }
+  }
+
+  const title = place ? 'Входной тест' : cp.final ? `Итог круга «${lv.title}»` : 'Рубеж';
+  const at = it || items[items.length - 1];
+  const label = result ? 'готово' : place ? `${at ? CHECKS[at.seg].level : ''} · вопрос ${idx + 1}` : `вопрос ${Math.min(idx + 1, items.length)} из ${items.length}`;
+  const kind = place ? 'Входной тест · до 7 минут' : cp.final ? `Итог круга · ${lv.id}` : `Рубеж · ${lv.id} · ${cp.topics.length} ${plural(cp.topics.length, TOPIC_W)}`;
+  return html`<main class="screen conv">
+    <header class="conv-head pad">
+      <button type="button" class="icon-btn" aria-label="Выйти" onClick=${() => go('home')}><${Icon} name="back" size=${24} stroke=${2.2} /></button>
+      ${place ? html`<${Bota} size=${40} />` : html`<span class="test-ic"><${Icon} name="gate" size=${20} /></span>`}
+      <span class="conv-who"><b>${title}</b><span class="conv-prog">${label}</span></span>
+    </header>
+    <div class="scroll chat pad" ref=${scroller}>
+      <div class="msgs" role="log" aria-live="polite">
+        <span class="conv-kind">${kind}</span>
+        ${log.map((m, i) => html`<${Msg} key=${i} m=${m} tr=${false} all=${false} topic=${NOBODY} onShow=${() => showLine(i)} />`)}
+        ${typing ? html`<div class="m-row left"><div class="b b-npc typing" aria-label="печатает"><i></i><i></i><i></i></div></div>` : null}
+      </div>
+    </div>
+    <div class="composer pad" ref=${composer} hidden=${!panel}>${panel}</div>
+  </main>`;
+}
+
 /* ---------- optional rules ---------- */
 
 function SuffixGame() {
@@ -2068,7 +2601,7 @@ function Review({ st, update, go, only, back }) {
   if (!queue.length || i >= queue.length) {
     const nd = nextDue(st);
     const nx = nextUp(st);
-    const toNext = () => go('conv', { ti: nx.ti, ci: nx.ci });
+    const toNext = () => goStep(go, nx);
     const links = (items) => html`<span class="done-links">${items.map(([label, on], k) => html`${k ? html`<span aria-hidden="true">·</span>` : null}<button type="button" class="link-btn" onClick=${on}>${label}</button>`)}</span>`;
     if (closed) {
       const now = new Date();
@@ -2097,7 +2630,7 @@ function Review({ st, update, go, only, back }) {
         ${onward ? html`<span class="muted sm">Дальше: ${lc(nextTitle(nx))}</span>` : null}
       </div>
       <div class="bottom pad">${onward
-        ? html`<button type="button" class="btn btn-primary btn-block" onClick=${toNext}>${isSkill(nx.c) ? 'Начать урок' : 'Продолжить разговор'}</button>
+        ? html`<button type="button" class="btn btn-primary btn-block" onClick=${toNext}>${nx.cp ? (nx.cp.final ? 'Начать итог круга' : 'Начать рубеж') : isSkill(nx.c) ? 'Начать урок' : 'Продолжить разговор'}</button>
           ${links([['В «Мой круг»', () => go('home')]])}`
         : html`<button type="button" class="btn btn-primary btn-block" onClick=${() => go(home)}>${forBaby ? 'Готово' : 'Вернуться в «Мой круг»'}</button>`}</div>
     </main>`;
@@ -2169,7 +2702,7 @@ const MISS_W = ['ошибка', 'ошибки', 'ошибок'];
 // Times are shown and compared in tenths of a second.
 const tenths = (ms) => Math.round(ms / 100);
 
-const raceOpen = (st, t) => !!(t.words && t.words.length && st.done[t.convs[2].id]);
+const raceOpen = (st, t) => !!(t.words && t.words.length && (st.done[t.convs[2].id] || topicKnown(st, t)));
 const raceTopics = (st) => PLAYABLE.filter((t) => raceOpen(st, t));
 // Words close in meaning or form, from different topics, never meet in one mixed race.
 const APART = new Map(RACE_APART.flatMap((group, i) => group.map((kk) => [kk, i])));
@@ -2734,7 +3267,7 @@ function SwapCard({ swap, sound }) {
   };
   return html`<section class="card swap">
     <span class="eyebrow">ЗАМЕНИ СЛОВО</span>
-    <span class="swap-line"><b class="kk" lang="kk" aria-live="polite">${a}<span class="slot">${mid}</span>${b}</b><${SpeakBtn} text=${a + mid + b} /></span>
+    <span class="swap-line"><b class="kk" lang="kk" aria-live="polite">${a}<span class="swap-slot">${mid}</span>${b}</b><${SpeakBtn} text=${a + mid + b} /></span>
     <span class="muted sm">${swapRu(swap, w)}</span>
     <div class="age-chips" role="group" aria-label="Слова на замену">${swap.words.map((x, i) => html`
       <button type="button" class=${'chip-btn' + (i === k ? ' sel' : '')} aria-pressed=${i === k} lang="kk" onClick=${() => pick(i)}>${x[0]}</button>`)}</div>
@@ -3077,6 +3610,10 @@ function Profile({ st, update, go }) {
   const monthDays = Object.keys(st.days).filter((k) => k.startsWith(monthPrefix)).length;
   const convDone = ALL_CONVS.filter((x) => st.done[x.c.id]).length;
   const rulesRead = Object.keys(st.rules).length;
+  // Рубежи: how many are passed, and the last итог круга taken, by the blocks of КАЗТЕСТ.
+  const cpPassed = CHECKS.filter((cp) => cpState(st, cp).pass).length;
+  const lastFinal = [...CHECKS].reverse().find((cp) => cp.final && cpState(st, cp).blocks);
+  const finalBlocks = lastFinal ? cpState(st, lastFinal).blocks : {};
   const clean = cap(name.trim().replace(/\s+/g, ' ').slice(0, 24));
   const babyClean = cap(babyName.trim().replace(/\s+/g, ' ').slice(0, 24));
   const babyAgeLabel = (BABY_AGES.find((a) => a[0] === st.baby.age) || BABY_AGES[1])[1];
@@ -3138,6 +3675,19 @@ function Profile({ st, update, go }) {
         <div class="stat"><b>${memCount}</b><span>${memIds.some(isWord) ? 'в памяти: фразы и слова' : plural(memCount, ['фраза в памяти', 'фразы в памяти', 'фраз в памяти'])}</span></div>
         <div class="stat"><b>${rulesRead}</b><span>${plural(rulesRead, ['правило прочитано', 'правила прочитано', 'правил прочитано'])}</span></div>
       </section>
+      ${st.profile.mode === 'talk' || convDone ? html`<section class="card settings">
+        <span class="eyebrow">ПРОВЕРКА УРОВНЯ</span>
+        <div class="set-row">
+          <span class="grow"><b>Рубежи</b><span class="muted sm">${cpPassed ? `взято ${cpPassed} из ${CHECKS.length}` : `${CHECKS.length} ${plural(CHECKS.length, ['рубеж', 'рубежа', 'рубежей'])}: после каждых 3–4 тем`}</span>
+            ${lastFinal ? html`<span class="muted sm">Итог круга «${levelOf(lastFinal.level).title}»: ${BLOCKS.filter(([b]) => finalBlocks[b])
+              .map(([b, label]) => `${label.toLowerCase()} ${finalBlocks[b][0]} из ${finalBlocks[b][1]}`).join(' · ')}</span>` : null}</span>
+        </div>
+        <div class="set-row">
+          <span class="grow"><b>Входной тест</b><span class="muted sm">${st.place.day ? `пройден ${Number(st.place.day.slice(8))} ${MONTHS_GEN[Number(st.place.day.slice(5, 7)) - 1]}`
+            : '5–7 минут, чтобы начать с подходящей темы'}</span></span>
+          <button type="button" class="btn-chip" onClick=${() => go('test', { id: 'place' })}>${st.place.day ? 'Ещё раз' : 'Пройти'}</button>
+        </div>
+      </section>` : null}
       <section class="card settings">
         <span class="eyebrow">НАСТРОЙКИ</span>
         <div class="set-row">
@@ -3240,7 +3790,7 @@ function routeAfterStart(st) {
 function upRoute(route, st) {
   const start = st.profile.mode === 'baby' ? 'baby' : 'home';
   switch (route.name) {
-    case 'topic': return { name: 'home' };
+    case 'topic': case 'test': return { name: 'home' };
     case 'review': return { name: route.back || 'home' };
     case 'conv': return { name: 'topic', ti: route.ti };
     case 'race': return route.ti != null ? { name: 'topic', ti: route.ti } : { name: 'home' };
@@ -3325,11 +3875,17 @@ function App() {
       screen = html`<${Splash} fact=${route.fact} onNext=${() => { update((d) => { d.seen.fact = route.fact.key; }); setRoute(routeAfterStart(st)); }} />`;
       break;
     case 'onboard':
-      // After meeting Bota the first conversation opens at once (with Әже); parents go to «Малыш».
-      screen = html`<${Onboard} st=${st} update=${update} done=${(mode) => {
+      // After meeting Bota the first conversation opens at once (with Әже), or the entrance test for
+      // those who know some Kazakh already; parents go to «Малыш».
+      screen = html`<${Onboard} st=${st} update=${update} done=${(mode, test) => {
         const nx = mode === 'baby' ? null : nextUp(st);
-        if (nx) go('conv', { ti: nx.ti, ci: nx.ci }); else go(mode === 'baby' ? 'baby' : 'home');
+        if (test) go('test', { id: 'place' });
+        else if (nx) goStep(go, nx);
+        else go(mode === 'baby' ? 'baby' : 'home');
       }} />`;
+      break;
+    case 'test':
+      screen = html`<${TestScreen} key=${`test-${route.id}-${route.k || 0}`} st=${st} update=${update} go=${go} id=${route.id} />`;
       break;
     case 'topic':
       screen = html`<${TopicScreen} st=${st} ti=${route.ti} go=${go} />`;

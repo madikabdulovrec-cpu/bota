@@ -665,7 +665,8 @@ export function Photo({ kind }) {
 }
 
 // Month as a shanyrak: one spoke (уық) per day. fresh: today's spoke has just been added — it stands out.
-export function Shanyrak({ year, month, days, today, size = 120, fresh }) {
+// mini: the small one of the main screen, with thicker уықтар that still read at 28 pixels.
+export function Shanyrak({ year, month, days, today, size = 120, fresh, mini }) {
   const n = new Date(year, month + 1, 0).getDate();
   const spokes = [];
   for (let i = 1; i <= n; i++) {
@@ -679,7 +680,7 @@ export function Shanyrak({ year, month, days, today, size = 120, fresh }) {
     else if (i < today) cls = 'spoke-miss';
     spokes.push(html`<line x1=${x1.toFixed(1)} y1=${y1.toFixed(1)} x2=${x2.toFixed(1)} y2=${y2.toFixed(1)} class=${cls}></line>`);
   }
-  return html`<svg width=${size} height=${size} viewBox="0 0 170 170" aria-hidden="true" class="shanyrak">
+  return html`<svg width=${size} height=${size} viewBox="0 0 170 170" aria-hidden="true" class=${mini ? 'shanyrak mini' : 'shanyrak'}>
     ${spokes}
     <circle cx="85" cy="85" r="30" style="fill: var(--gold-wash)"></circle>
     <path d="M76 59.5V110.5M94 59.5V110.5M59.5 76H110.5M59.5 94H110.5" stroke-width="3" stroke-linecap="round" style="stroke: var(--gold-deep)"></path>

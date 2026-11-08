@@ -1,13 +1,13 @@
 // Бота — MVP: conversational Kazakh for Russian speakers.
 import { html, render, useState, useEffect, useRef, useMemo, useErrorBoundary } from 'https://cdn.jsdelivr.net/npm/htm@3.1.1/preact/standalone.module.js';
-import { KINDS, CITIES, JOBS, HOBBIES, CHOICES, PEOPLE, PHRASES, TOPICS, LEVELS, RULES, RESCUE, PHRASEBOOK, BABY, BABY_GROUPS, BABY_AGES, BABY_GOAL, BABY_NOW, ENDEARMENTS, FACTS, RACE_APART } from './content.js?v=ebc198b';
-import * as fsrs from './fsrs.js?v=ebc198b';
-import * as voice from './voice.js?v=ebc198b';
-import * as mic from './mic.js?v=ebc198b';
-import * as stats from './stats.js?v=ebc198b';
-import { KZ_LETTERS, checkTyped, normType, plain, syllables, fillSlot } from './typing.js?v=ebc198b';
-import { CHECKS, BLOCK, SIZE, PLACE_ASK, PLACE_PASS, checkItems, placeItems, need, passes } from './exam.js?v=ebc198b';
-import { Icon, PlayGlyph, SpeakerGlyph, Sun, Logo, Bota, Avatar, Yurt, Photo, Shanyrak, Wave } from './art.js?v=ebc198b';
+import { KINDS, CITIES, JOBS, HOBBIES, CHOICES, PEOPLE, PHRASES, TOPICS, LEVELS, RULES, RESCUE, PHRASEBOOK, BABY, BABY_GROUPS, BABY_AGES, BABY_GOAL, BABY_NOW, ENDEARMENTS, FACTS, RACE_APART } from './content.js?v=51d4143';
+import * as fsrs from './fsrs.js?v=51d4143';
+import * as voice from './voice.js?v=51d4143';
+import * as mic from './mic.js?v=51d4143';
+import * as stats from './stats.js?v=51d4143';
+import { KZ_LETTERS, checkTyped, normType, plain, syllables, fillSlot } from './typing.js?v=51d4143';
+import { CHECKS, BLOCK, SIZE, PLACE_ASK, PLACE_PASS, checkItems, placeItems, need, passes } from './exam.js?v=51d4143';
+import { Icon, PlayGlyph, SpeakerGlyph, Sun, Logo, Bota, Avatar, Yurt, Photo, Shanyrak, Wave } from './art.js?v=51d4143';
 
 // The version of the app: tools/site.mjs gives every module address ?v=<commit>.
 const VERSION = new URL(import.meta.url).searchParams.get('v') || 'dev';
@@ -821,8 +821,14 @@ function TopBar({ title, sub, subLang, onBack, backLabel, right }) {
   </header>`;
 }
 
-function StreakPill({ n }) {
-  return html`<span class="streak"><${Sun} size=${18} />${n > 0 ? `${n} ${plural(n, DAY_W)}` : 'начни серию'}</span>`;
+// The streak on the main screen: the month's шаңырақ in small — a уық for every day of practice — and
+// the days in a row. A tap opens it large in «Профиль».
+function ShanyrakChip({ st, go }) {
+  const n = streakOf(st.days);
+  const now = new Date();
+  return html`<button type="button" class="streak" aria-label=${`${n > 0 ? `Серия: ${n} ${plural(n, DAY_W)} подряд. ` : ''}Шаңырақ месяца — в профиле`} onClick=${() => go('profile')}>
+    <${Shanyrak} year=${now.getFullYear()} month=${now.getMonth()} days=${st.days} today=${now.getDate()} size=${26} mini />
+    ${n > 0 ? `${n} ${plural(n, DAY_W)}` : 'начни серию'}</button>`;
 }
 
 /* ---------- 00 · fact of the day ---------- */
@@ -1031,7 +1037,7 @@ function cpNote(st, cp, status) {
 // One circle at a time: the people of the chosen level around the yurt. Earlier levels fold
 // into thin gold rings right around the yurt, the next level waits on the outer dashed ring: its
 // name runs along that ring, so that it does not read as the name of the person at the top.
-function CircleMap({ st, go, level }) {
+function CircleMap({ st, go, level, onList }) {
   const lv = levelOf(level);
   const items = PLAYABLE.map((t, ti) => ({ t, ti })).filter((x) => x.t.level === level);
   const nx = nextUp(st, level);
@@ -1067,12 +1073,14 @@ function CircleMap({ st, go, level }) {
       ${after ? html`<path id="ring2-top" d="M 9.5 171 A 161.5 161.5 0 0 1 332.5 171" fill="none"></path>
         <text class="ring-name" text-anchor="middle"><textPath href="#ring2-top" startOffset="50%">${`${after.title} · ${after.id}${after.soon ? ' · скоро' : ''}`.toUpperCase()}</textPath></text>` : null}
     </svg>
-    <span class="map-center"><b>${lv.title.toLowerCase()} · ${lv.id}</b><span>${doneTopics} из ${items.length} тем</span></span>
+    <button type="button" class="map-center" aria-label=${`Все темы круга «${lv.title}» списком: пройдено ${doneTopics} из ${items.length}`} onClick=${onList}>
+      <b>${lv.title.toLowerCase()} · ${lv.id}</b><span>${doneTopics} из ${items.length} тем <${Icon} name="next" size=${11} stroke=${3} /></span></button>
     ${items.map(({ t, ti }, i) => {
       const n = topicDone(st, t);
       const isCur = !!nx && nx.ti === ti;
       const known = topicKnown(st, t) && n < t.convs.length;
-      // A topic the way has not reached is grey, yet its first two lessons are open (flexible entry).
+      // A topic the way has not reached is drawn lighter, with a dashed ring: its first two lessons are
+      // open already (flexible entry), the rest when the way comes there.
       const status = n === t.convs.length || (known && !isCur) ? 'done' : isCur ? 'cur' : reached(st, ti) ? 'open' : 'locked';
       const [x, y] = slotXY(i, items.length);
       const size = isCur ? 56 : 40;
@@ -1169,8 +1177,10 @@ function MemRow({ st, go }) {
   const all = Object.keys(st.mem).filter((id) => phrase(id));
   if (!all.length) return null;
   const due = dueList(st);
+  // The ornament (қошқар мүйіз) fades with the share of phrases waiting to be refreshed.
+  const fade = Math.min(1, due.length / all.length);
   return html`<button type="button" class="mem-row" onClick=${() => go('review')}>
-    <span class="mem-ic"><${Icon} name="ornament" size=${22} /></span>
+    <span class="mem-ic" style=${`opacity:${(1 - 0.6 * fade).toFixed(2)}`}><${Icon} name="ornament" size=${22} /></span>
     <span class="grow">${due.length ? `Память: ${cardsText(due)} ${agree(due, 'тускнеет', 'тускнеют')}` : `Память: ${cardsText(all)}, всё свежее`}</span>
     ${due.length ? html`<span class="link">Освежить</span>` : null}
     <${Icon} name="next" size=${18} stroke=${2.4} />
@@ -1195,15 +1205,16 @@ function Home({ st, go, update }) {
   const today = doneToday(st);
   const goal = goalOf(st);
   const [install, installSheet] = useInstall(update);
+  const [list, setList] = useState(false);
   return html`<main class="screen">
     <div class="scroll pad home">
       <header class="home-head"><span class="grow"><h1 class="h1">Привет, ${v.name}!</h1>
         <span class="muted sm">${today >= goal ? `Цель дня выполнена: ${today} ${plural(today, LESSON_W)}` : `Сегодня ${today} из ${goal} ${plural(goal, LESSON_W)}`}</span></span>
-        <${StreakPill} n=${streakOf(st.days)} /></header>
+        <${ShanyrakChip} st=${st} go=${go} /></header>
       <div class="levels" role="tablist" aria-label="Круги общения">${OPEN_LEVELS.map((l) => html`
         <button type="button" role="tab" aria-selected=${level === l.id} class=${'level' + (level === l.id ? ' on' : '')} onClick=${() => setLevel(l.id)}>
           ${l.tab || l.title} <span>${l.id}</span></button>`)}</div>
-      <${CircleMap} st=${st} go=${go} level=${level} />
+      <${CircleMap} st=${st} go=${go} level=${level} onList=${() => setList(true)} />
       <${NextCard} st=${st} go=${go} level=${level} setLevel=${setLevel} />
       ${reviewFirst(st) && nextUp(st, level) ? null : html`<${MemRow} st=${st} go=${go} />`}
       <${RaceRow} st=${st} go=${go} />
@@ -1213,7 +1224,38 @@ function Home({ st, go, update }) {
     </div>
     <${TabBar} tab="home" go=${go} st=${st} />
     ${installSheet}
+    ${list ? html`<${TopicsSheet} st=${st} go=${go} level=${level} onClose=${() => setList(false)} />` : null}
   </main>`;
+}
+
+// All topics of a circle as a list: the map carries no labels, here every person has a name, a topic
+// and where it stands. Topics ahead say that their first lessons are open.
+function TopicsSheet({ st, go, level, onClose }) {
+  const box = useRef(null);
+  useSheet(box, onClose);
+  const lv = levelOf(level);
+  const nx = nextUp(st, level);
+  const items = PLAYABLE.map((t, ti) => ({ t, ti })).filter((x) => x.t.level === level);
+  const noteOf = (t, ti) => {
+    const n = topicDone(st, t);
+    if (n === t.convs.length) return 'пройдена';
+    if (topicKnown(st, t)) return 'знакомая тема';
+    if (nx && nx.ti === ti) return n ? `сейчас · ${n} из ${t.convs.length}` : 'сейчас';
+    if (reached(st, ti)) return `${n} из ${t.convs.length}`;
+    return n ? `впереди · ${n} из ${t.convs.length}` : 'впереди';
+  };
+  return html`<div class="sheet-back" onClick=${onClose}>
+    <div class="sheet pad" ref=${box} role="dialog" aria-modal="true" aria-label=${`Круг «${lv.title}»`} onClick=${(e) => e.stopPropagation()}>
+      <span class="sheet-grip" aria-hidden="true"></span>
+      <h2 class="h2" tabindex="-1">Круг «${lv.title}» · ${lv.id}</h2>
+      <span class="muted sm">Первые уроки любой темы открыты сразу.</span>
+      <div class="topic-list">${items.map(({ t, ti }) => html`
+        <button type="button" class="topic-item" onClick=${() => { onClose(); go('topic', { ti }); }}>
+          <${Avatar} who=${t.who} size=${36} />
+          <span class="grow"><b>${t.title}</b><span class="muted sm">${PEOPLE[t.who].name} · ${noteOf(t, ti)}</span></span>
+          <${Icon} name="next" size=${18} stroke=${2.4} /></button>`)}</div>
+    </div>
+  </div>`;
 }
 
 /* ---------- topic: one person, four conversations ---------- */
@@ -1963,11 +2005,20 @@ function ConvScreen({ st, update, ti, ci, go, back }) {
   const v = varsOf(st);
   const steps = conv.steps;
   const [pos, setPos] = useState(0);
-  const [log, setLog] = useState([]);
+  // The very first lesson of a newcomer (none done, no entrance test) is not a guess by ear: its lines
+  // come with their text and translation, and Bota says once what the buttons do. The first
+  // «Послушай» by ear after it says how that works.
+  const [guided] = useState(() => conv.kind === 'listen' && ti === 0 && !Object.keys(st.done).length && !st.place.day);
+  const [log, setLog] = useState(() => {
+    if (guided) return [{ k: 'tip', text: 'Первый разговор! Фразы звучат сами, а значок динамика повторит их. Перевод пока под каждой фразой, дальше — по нажатию на фразу или по кнопке «Ру» вверху.' }];
+    const byEar = conv.kind === 'listen' && st.settings.voice && voice.available()
+      && !ALL_CONVS.some((x) => x.c.kind === 'listen' && x.ti !== 0 && st.done[x.c.id]);
+    return byEar ? [{ k: 'tip', text: 'Теперь — на слух: реплики приходят голосовыми, текст откроется после ответа. Не расслышал(а) — «Медленно», совсем никак — «текст» в сообщении.' }] : [];
+  });
   const [typing, setTyping] = useState(false);
   // tr: every translation, answer options included (the «Ру» button). Without it a line shows
   // its translation after a tap, and options stay in Kazakh until the answer is given.
-  const [tr, setTr] = useState(conv.kind !== 'free' && st.settings.trAuto);
+  const [tr, setTr] = useState(conv.kind !== 'free' && (st.settings.trAuto || guided));
   const [opened, setOpened] = useState({});
   const [sheet, setSheet] = useState(null);
   const [result, setResult] = useState(null);
@@ -2054,7 +2105,7 @@ function ConvScreen({ st, update, ti, ci, go, back }) {
         const cur = stRef.current;
         const msg = autoMsg(step, varsOf(cur), t);
         const heard = cur.settings.voice && !deafRef.current;
-        if (isNpc && heard && (conv.kind === 'listen' || step.fast) && voice.canSay(msg.kk)) msg.hidden = true;
+        if (isNpc && heard && ((conv.kind === 'listen' && !guided) || step.fast) && voice.canSay(msg.kk)) msg.hidden = true;
         shownPos.current = pos;
         setTyping(false);
         setLog((l) => [...l, msg]);
@@ -2144,7 +2195,7 @@ function ConvScreen({ st, update, ti, ci, go, back }) {
       const lines = log.slice(segStart.current).filter((m) => m.k === 'npc' && voice.canSay(m.kk)).map((m) => m.kk);
       panel = html`<${CheckPanel} key=${pos} step=${step} listen=${conv.kind === 'listen'} auto=${st.settings.voice}
         slowly=${listen && lines.length ? () => { mic.stopPlaying(); voice.sayAll(lines, 0.6); } : null}
-        onDeaf=${listen && st.settings.voice ? cantListen : null} onHint=${hint} onDone=${() => advance([], { checked: true })} />`;
+        onDeaf=${listen && st.settings.voice && !guided ? cantListen : null} onHint=${hint} onDone=${() => advance([], { checked: true })} />`;
     } else if (step.pick) {
       panel = html`<${PickPanel} key=${pos} step=${step} v=${v} tr=${tr} onHint=${hint}
         onDone=${(o) => advance([{ k: 'me', kk: val(o.kk, v), ru: val(o.ru, v) }], { rule: step.rule, word: step.word })} />`;

@@ -3,9 +3,9 @@
 // Templates in strings: {name}, {cityAbl}, {cityAblSyl}, {cityFrom}, {cityLoc}, {cityIn}.
 // A step field may also be a function of the learner's variables (v) => string.
 
-import { A2_PEOPLE, A2_PHRASES, A2_TOPICS } from './content-a2.js?v=ebc198b';
-import { B1_PEOPLE, B1_PHRASES, B1_TOPICS } from './content-b1.js?v=ebc198b';
-import { B2_PEOPLE, B2_PHRASES, B2_TOPICS } from './content-b2.js?v=ebc198b';
+import { A2_PEOPLE, A2_PHRASES, A2_TOPICS } from './content-a2.js?v=51d4143';
+import { B1_PEOPLE, B1_PHRASES, B1_TOPICS } from './content-b1.js?v=51d4143';
+import { B2_PEOPLE, B2_PHRASES, B2_TOPICS } from './content-b2.js?v=51d4143';
 
 export const KINDS = {
   listen: { label: 'Послушай', icon: 'ear' },

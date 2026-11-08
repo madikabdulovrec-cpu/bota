@@ -359,7 +359,7 @@ button.vplay::after { content: ''; position: absolute; inset: -7px; }
 /* 03 home: the circle */
 .home { display: flex; flex-direction: column; gap: 14px; padding-top: 16px; padding-bottom: 18px; }
 .home-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; }
-.streak { flex-shrink: 0; display: inline-flex; align-items: center; gap: 5px; padding: 6px 11px; border-radius: 14px; background: var(--card); border: 1.5px solid var(--gold-line); color: var(--gold-ink); font-size: 13px; font-weight: 800; }
+.streak { flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; padding: 4px 11px 4px 6px; border-radius: 16px; background: var(--card); border: 1.5px solid var(--gold-line); color: var(--gold-ink); font-family: inherit; font-size: 13px; font-weight: 800; cursor: pointer; }
 .map { position: relative; width: 100%; max-width: 342px; margin: 0 auto; aspect-ratio: 1 / 1; }
 /* Short phones (iPhone SE): the circle is smaller, so the main button of the card stays above the tabs. */
 @media (max-height: 700px) { .map { max-width: 290px; } .home { gap: 12px; padding-top: 12px; } .home-head .h1 { font-size: 22px; } }
@@ -377,9 +377,9 @@ button.vplay::after { content: ''; position: absolute; inset: -7px; }
 .level.on { background: var(--card); color: var(--ink); box-shadow: 0 1px 3px rgba(10, 40, 48, 0.12); }
 /* The next circle's name runs along the outer dashed ring, so it does not read as the top person's name. */
 .ring-name { font-family: var(--font-body); font-size: 10px; font-weight: 800; letter-spacing: 1.4px; fill: var(--muted); }
-.map-center { position: absolute; left: 50%; top: 56.5%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 1px 8px; border-radius: 10px; background: var(--bg); text-align: center; white-space: nowrap; }
+.map-center { position: absolute; left: 50%; top: 56.5%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 1px 8px; border: none; border-radius: 10px; background: var(--bg); color: inherit; font-family: inherit; text-align: center; white-space: nowrap; cursor: pointer; }
 .map-center b { font-size: 12px; font-weight: 800; color: var(--ink2); }
-.map-center span { font-size: 11.5px; font-weight: 600; color: var(--muted); }
+.map-center span { display: inline-flex; align-items: center; gap: 2px; font-size: 11.5px; font-weight: 700; color: var(--teal-ink); }
 .av-btn { position: absolute; transform: translate(-50%, calc(-1 * var(--half))); display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 0; border: none; background: transparent; color: var(--ink); cursor: pointer; }
 .av { position: relative; display: inline-flex; }
 .av-ring { position: absolute; inset: 0; }
@@ -390,7 +390,9 @@ button.vplay::after { content: ''; position: absolute; inset: -7px; }
 .av-face { position: absolute; inset: 5px; display: flex; }
 .av-face svg { width: 100%; height: 100%; }
 .av-btn.cur { z-index: 2; }
-.av-locked { opacity: 0.45; filter: grayscale(1); }
+/* A topic ahead of the way: its first lessons are open, so it is drawn lighter with a dashed ring, not grey. */
+.av-locked { opacity: 0.72; }
+.av-locked .track { stroke-dasharray: 3 4; }
 .av-badge { position: absolute; right: -3px; bottom: -3px; width: 22px; height: 22px; border-radius: 50%; border: 2.5px solid var(--bg); display: flex; align-items: center; justify-content: center; color: var(--on-teal); }
 .av-badge.done { background: var(--teal); }
 .av-badge.cur { background: var(--gold); }
@@ -600,6 +602,15 @@ button.vplay::after { content: ''; position: absolute; inset: -7px; }
 .spoke-today { stroke: var(--teal); stroke-width: 4; stroke-dasharray: 4 4; }
 .spoke-miss { stroke: var(--line2); stroke-width: 5; }
 .spoke-future { stroke: var(--line); stroke-width: 3; stroke-dasharray: 3 5; }
+/* The small шаңырақ of the main screen: thicker уықтар, no dashes, so that it reads at 26 pixels. */
+.shanyrak.mini .spoke-done { stroke-width: 12; }
+.shanyrak.mini .spoke-today { stroke-width: 9; stroke-dasharray: none; }
+.shanyrak.mini .spoke-miss, .shanyrak.mini .spoke-future { stroke-width: 7; stroke-dasharray: none; }
+.topic-list { display: flex; flex-direction: column; gap: 6px; }
+.topic-item { display: flex; align-items: center; gap: 10px; min-height: 56px; padding: 8px 12px; border-radius: 16px; border: 1.5px solid var(--line); background: var(--card); color: var(--ink); font-family: inherit; text-align: left; cursor: pointer; }
+.topic-item .grow { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.topic-item b { font-size: 15px; }
+.topic-item > svg:last-child { flex-shrink: 0; color: var(--teal-ink); }
 .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .stat { display: flex; flex-direction: column; gap: 2px; padding: 12px; border-radius: 16px; background: var(--card); border: 1.5px solid var(--line); }
 .stat b { font-family: var(--font-display); font-weight: 900; font-size: 22px; font-variant-numeric: tabular-nums; }
@@ -657,5 +668,5 @@ button.vplay::after { content: ''; position: absolute; inset: -7px; }
   }
   window.botaBoot = setTimeout(botaFail, 10000);
 </script>
-<script type="module" src="./app.js?v=ebc198b" onerror="botaFail()"></script>
+<script type="module" src="./app.js?v=51d4143" onerror="botaFail()"></script>
 </body></html>

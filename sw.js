@@ -1,22 +1,22 @@
 // Бота without the network: the service worker of the site keeps this version of the app — the
 // page, its modules, icons, Preact and the fonts — so the app installed on a phone opens offline.
 // A template: tools/site.mjs fills in VERSION (the commit) and CORE (the files of the version).
-const VERSION = 'e1d30e0';
+const VERSION = 'ebc198b';
 const CORE = [
  "./",
- "app.js?v=e1d30e0",
- "art.js?v=e1d30e0",
- "audio-index.js?v=e1d30e0",
- "content-a2.js?v=e1d30e0",
- "content-b1.js?v=e1d30e0",
- "content-b2.js?v=e1d30e0",
- "content.js?v=e1d30e0",
- "exam.js?v=e1d30e0",
- "fsrs.js?v=e1d30e0",
- "mic.js?v=e1d30e0",
- "stats.js?v=e1d30e0",
- "typing.js?v=e1d30e0",
- "voice.js?v=e1d30e0",
+ "app.js?v=ebc198b",
+ "art.js?v=ebc198b",
+ "audio-index.js?v=ebc198b",
+ "content-a2.js?v=ebc198b",
+ "content-b1.js?v=ebc198b",
+ "content-b2.js?v=ebc198b",
+ "content.js?v=ebc198b",
+ "exam.js?v=ebc198b",
+ "fsrs.js?v=ebc198b",
+ "mic.js?v=ebc198b",
+ "stats.js?v=ebc198b",
+ "typing.js?v=ebc198b",
+ "voice.js?v=ebc198b",
  "apple-touch-icon.png",
  "icon-192.png",
  "icon-512.png",
@@ -62,16 +62,22 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   if (request.method !== 'GET') return;
   const url = new URL(request.url);
-  // The page itself: the network first, so a new version arrives at once; the kept page offline.
-  // Other addresses opened as pages (a calendar file of the reminder) are never kept as the page.
+  // The page itself: the network first, so a new version arrives at once; the kept page of this
+  // version offline, or after three seconds of a weak network, so the app never waits on a white
+  // screen. The page from the network is not kept: a newer page points at modules this version does
+  // not keep, and a new version keeps its own page when it installs (CORE). Other addresses opened as
+  // pages (a calendar file of the reminder) are never taken for the page.
   if (request.mode === 'navigate' && url.origin === self.location.origin && /\/(index\.html)?$/.test(url.pathname)) {
     event.respondWith((async () => {
+      const net = fetch(request);
+      net.catch(() => { /* answered by the kept page */ });
+      const copy = await caches.match('./');
+      if (!copy) return net;
+      const late = new Promise((resolve) => { setTimeout(() => resolve(copy), 3000); });
       try {
-        const response = await fetch(request);
-        if (response.ok) (await caches.open(SHELL)).put('./', response.clone());
-        return response;
+        return await Promise.race([net.then((r) => (r.ok ? r : copy)), late]);
       } catch (e) {
-        return (await caches.match('./')) || Response.error();
+        return copy;
       }
     })());
     return;

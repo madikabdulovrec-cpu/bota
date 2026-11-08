@@ -184,7 +184,8 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--focus); out
 .b-kk.sm { font-size: 13.5px; }
 .b-voice-row { display: flex; align-items: center; gap: 8px; }
 .vplay { flex-shrink: 0; width: 30px; height: 30px; padding: 0; border: none; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: rgba(255, 255, 255, 0.18); color: inherit; }
-button.vplay { cursor: pointer; }
+button.vplay { position: relative; cursor: pointer; }
+button.vplay::after { content: ''; position: absolute; inset: -7px; }
 .wave rect { fill: var(--on-teal-soft); }
 /* A heard line («Послушай»): the other person's voice message; «текст» opens its words. */
 .b-heard .vplay { background: var(--teal-soft); color: var(--teal-ink); }
@@ -227,6 +228,8 @@ button.vplay { cursor: pointer; }
 
 /* composer panels */
 .composer { flex-shrink: 0; max-height: 64%; overflow-y: auto; padding-top: 14px; padding-bottom: 18px; background: var(--card); border-top: 1.5px solid var(--line); border-radius: 24px 24px 0 0; }
+/* The end of a lesson or a test: the conversation is over, the result may take most of the screen. */
+.composer.ended { max-height: 92%; }
 .panel-in { display: flex; flex-direction: column; gap: 10px; }
 .q { font-size: 16px; font-weight: 800; }
 .opts { display: flex; flex-direction: column; gap: 8px; }
@@ -265,12 +268,12 @@ button.vplay { cursor: pointer; }
 .rec-meter { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: flex-end; gap: 2px; height: 28px; }
 .rec-meter i { flex: 1; max-width: 4px; min-height: 4px; border-radius: 2px; background: var(--teal); transition: height 0.05s linear; }
 .stop-glyph { display: inline-block; width: 13px; height: 13px; border-radius: 3px; background: currentColor; }
-.b-dur { font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--on-teal-soft); }
+.b-dur { font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--on-teal); }
 .ctl:disabled { opacity: 0.45; cursor: default; }
 .say-status { font-size: 13px; line-height: 1.4; color: var(--hint-ink); text-align: center; }
 /* Said aloud without a recording: the phrase and a quiet mark, not a voice message. */
 .b-said { display: flex; flex-direction: column; gap: 4px; }
-.b-said-row { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; color: var(--on-teal-soft); }
+.b-said-row { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; color: var(--on-teal); }
 .b-sample { padding: 4px 2px; border: none; background: none; color: var(--on-teal); font: inherit; font-weight: 800; text-decoration: underline; cursor: pointer; }
 .race-open { align-self: stretch; justify-content: center; }
 .muted a, .sm a { color: var(--teal-ink); font-weight: 700; }
@@ -360,6 +363,8 @@ button.vplay { cursor: pointer; }
 .map { position: relative; width: 100%; max-width: 342px; margin: 0 auto; aspect-ratio: 1 / 1; }
 /* Short phones (iPhone SE): the circle is smaller, so the main button of the card stays above the tabs. */
 @media (max-height: 700px) { .map { max-width: 290px; } .home { gap: 12px; padding-top: 12px; } .home-head .h1 { font-size: 22px; } }
+/* Safari on an iPhone SE shows about 550 px: the circle and its people shrink, so that the main button of the card stays above the tabs. */
+@media (max-height: 620px) { .map { max-width: 220px; } .map .av-btn { transform: translate(-50%, calc(-1 * var(--half))) scale(0.76); } .home { gap: 8px; padding-top: 8px; } .level span { display: none; } .card.next { padding: 12px 16px; gap: 8px; } }
 .map-svg { position: absolute; inset: 0; width: 100%; height: 100%; }
 .ring1 { fill: none; stroke: var(--line2); stroke-width: 3; }
 .ring1-done { fill: none; stroke: var(--teal); stroke-width: 3; stroke-linecap: round; }
@@ -549,6 +554,8 @@ button.vplay { cursor: pointer; }
 .swap-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .swap-line b { font-size: 18px; line-height: 1.35; }
 .swap-slot { padding: 0 6px; border-radius: 8px; background: var(--teal-soft); color: var(--teal-ink); }
+/* The literal sense of a Kazakh endearment: «қозым — букв. «мой ягнёнок»». */
+.literal { color: var(--gold-ink); font-style: italic; }
 .mem-mark { flex-shrink: 0; display: inline-flex; padding: 0 4px; color: var(--gold-deep); }
 .prep { display: flex; flex-direction: column; gap: 12px; padding-top: 16px; padding-bottom: 20px; }
 .prep .say-kk { font-size: 26px; }
@@ -650,5 +657,5 @@ button.vplay { cursor: pointer; }
   }
   window.botaBoot = setTimeout(botaFail, 10000);
 </script>
-<script type="module" src="./app.js?v=e1d30e0" onerror="botaFail()"></script>
+<script type="module" src="./app.js?v=ebc198b" onerror="botaFail()"></script>
 </body></html>

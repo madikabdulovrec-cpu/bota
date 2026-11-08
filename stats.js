@@ -150,6 +150,8 @@ export async function flush(beacon) {
   if (!q.length) return true;
   const batch = q.slice(0, BATCH);
   const body = { app: 'bota', id: installId(), ...info, ev: batch };
+  // Offline a browser still takes a beacon and drops it: the batch waits for the network instead.
+  if (beacon && navigator.onLine === false) return false;
   if (beacon && navigator.sendBeacon) {
     try {
       if (navigator.sendBeacon(endpoint, new Blob([JSON.stringify(body)], { type: 'text/plain;charset=UTF-8' }))) remove(batch);

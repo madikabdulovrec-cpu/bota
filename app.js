@@ -1,13 +1,13 @@
 // Бота — MVP: conversational Kazakh for Russian speakers.
 import { html, render, useState, useEffect, useRef, useMemo, useErrorBoundary } from 'https://cdn.jsdelivr.net/npm/htm@3.1.1/preact/standalone.module.js';
-import { KINDS, CITIES, JOBS, HOBBIES, CHOICES, PEOPLE, PHRASES, TOPICS, LEVELS, RULES, RESCUE, PHRASEBOOK, BABY, BABY_GROUPS, BABY_AGES, BABY_GOAL, BABY_NOW, FACTS, RACE_APART } from './content.js?v=e1d30e0';
-import * as fsrs from './fsrs.js?v=e1d30e0';
-import * as voice from './voice.js?v=e1d30e0';
-import * as mic from './mic.js?v=e1d30e0';
-import * as stats from './stats.js?v=e1d30e0';
-import { KZ_LETTERS, checkTyped, normType, plain, syllables, fillSlot } from './typing.js?v=e1d30e0';
-import { CHECKS, BLOCK, SIZE, PLACE_ASK, PLACE_PASS, checkItems, placeItems, need, passes } from './exam.js?v=e1d30e0';
-import { Icon, PlayGlyph, SpeakerGlyph, Sun, Logo, Bota, Avatar, Yurt, Photo, Shanyrak, Wave } from './art.js?v=e1d30e0';
+import { KINDS, CITIES, JOBS, HOBBIES, CHOICES, PEOPLE, PHRASES, TOPICS, LEVELS, RULES, RESCUE, PHRASEBOOK, BABY, BABY_GROUPS, BABY_AGES, BABY_GOAL, BABY_NOW, ENDEARMENTS, FACTS, RACE_APART } from './content.js?v=ebc198b';
+import * as fsrs from './fsrs.js?v=ebc198b';
+import * as voice from './voice.js?v=ebc198b';
+import * as mic from './mic.js?v=ebc198b';
+import * as stats from './stats.js?v=ebc198b';
+import { KZ_LETTERS, checkTyped, normType, plain, syllables, fillSlot } from './typing.js?v=ebc198b';
+import { CHECKS, BLOCK, SIZE, PLACE_ASK, PLACE_PASS, checkItems, placeItems, need, passes } from './exam.js?v=ebc198b';
+import { Icon, PlayGlyph, SpeakerGlyph, Sun, Logo, Bota, Avatar, Yurt, Photo, Shanyrak, Wave } from './art.js?v=ebc198b';
 
 // The version of the app: tools/site.mjs gives every module address ?v=<commit>.
 const VERSION = new URL(import.meta.url).searchParams.get('v') || 'dev';
@@ -68,6 +68,15 @@ const isObj = (x) => !!x && typeof x === 'object' && !Array.isArray(x);
 
 // Old or damaged progress must not break the app: every field is checked, and a record that
 // cannot be read is kept under another key rather than overwritten.
+// The largest copy stays under KEY-broken: a fresh start after a crash, broken again, must not
+// replace real progress; a smaller copy goes to KEY-broken-last.
+function keepCopy(raw) {
+  try {
+    const old = localStorage.getItem(`${KEY}-broken`);
+    localStorage.setItem(!old || raw.length >= old.length ? `${KEY}-broken` : `${KEY}-broken-last`, raw);
+  } catch (e) { /* the copy is a courtesy */ }
+}
+
 function load() {
   let raw;
   try {
@@ -81,7 +90,7 @@ function load() {
   let d = null;
   try { d = JSON.parse(raw); } catch (e) { /* kept below */ }
   if (!isObj(d)) {
-    try { localStorage.setItem(`${KEY}-broken`, raw); } catch (e) { /* the copy is a courtesy */ }
+    keepCopy(raw);
     return fresh();
   }
   return normalize(d);
@@ -224,7 +233,7 @@ const INSTALL_STEPS = {
   ios: {
     title: 'Поставь Боту на экран «Домой»',
     steps: ['Нажми «Поделиться» — квадрат со стрелкой внизу экрана.', 'Выбери «На экран „Домой“».', 'Открывай Боту с иконки, как обычное приложение.'],
-    note: 'С иконки Safari не сотрёт прогресс, даже если неделю не заниматься, а уроки откроются и без интернета.',
+    note: 'С иконки Safari не сотрёт прогресс, даже если неделю не заниматься, а уроки откроются и без интернета. Если в приложении с иконки прогресса не окажется, перенеси его файлом: «Профиль» → «Перенести прогресс».',
   },
   other: {
     title: 'Поставь Боту на экран телефона',
@@ -429,14 +438,14 @@ function StatsRow({ st, update }) {
   };
   return html`<button type="button" class="mem-row" onClick=${() => setOpen(true)}>
       <span class="mem-ic race-ic"><${Icon} name="chat" size=${22} /></span>
-      <span class="grow">Помогите сделать Боту лучше: анонимная статистика пилота</span>
+      <span class="grow">${st.profile.mode === 'baby' ? 'Помогите' : 'Помоги'} сделать Боту лучше: анонимная статистика пилота</span>
       <${Icon} name="next" size=${18} stroke=${2.4} /></button>
     ${open ? html`<${StatsSheet} ask onAnswer=${answer} onClose=${() => setOpen(false)} />` : null}`;
 }
 
 // A message to the team: an inaccurate phrase, picked from those of the lesson or the ritual, or a
 // free message. It leaves only on «Отправить», without the name.
-function FeedbackSheet({ phrases, where, onClose }) {
+function FeedbackSheet({ phrases, where, hide, onClose }) {
   const [pick, setPick] = useState(phrases && phrases.length === 1 ? 0 : -1);
   const [text, setText] = useState('');
   const [state, setState] = useState('');
@@ -447,7 +456,11 @@ function FeedbackSheet({ phrases, where, onClose }) {
   const send = async () => {
     if (!can) return;
     setState('sending');
-    setState(await stats.message('feedback', { where, phrase: phrases && pick >= 0 ? phrases[pick] : '', text: text.trim().slice(0, 1000) }));
+    // The learner's name in a line of the course leaves as {name}: a whole word only.
+    const esc = hide ? hide.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : '';
+    const name = hide ? new RegExp(`(^|[^\\p{L}])${esc}(?![\\p{L}])`, 'gu') : null;
+    const phrase = phrases && pick >= 0 ? (name ? phrases[pick].replace(name, '$1{name}') : phrases[pick]) : '';
+    setState(await stats.message('feedback', { where, phrase, text: text.trim().slice(0, 1000) }));
   };
   const done = state === 'sent' || state === 'queued';
   return html`<div class="sheet-back" onClick=${onClose}>
@@ -465,17 +478,17 @@ function FeedbackSheet({ phrases, where, onClose }) {
           placeholder=${phrases ? 'Как правильно или что не так — по желанию' : 'Что понравилось, что мешает, чего не хватает'}></textarea>
         <span class="muted sm">Сообщение уходит без имени. Не пишите телефон и другие личные данные.</span>
         <button type="button" class="btn btn-primary btn-block" disabled=${!can} onClick=${send}>${state === 'sending' ? 'Отправляю…' : 'Отправить'}</button>
-        ${state === 'failed' ? html`<span class="say-status" role="status">Не получилось отправить — проверь интернет и попробуй ещё раз.</span>` : null}`}
+        ${state === 'failed' ? html`<span class="say-status" role="status">Не получилось отправить — проверьте интернет и попробуйте ещё раз.</span>` : null}`}
     </div>
   </div>`;
 }
 
 // «Нашли неточность во фразе?» under a lesson or a ritual: one line, the sheet on a tap.
-function ReportLink({ phrases, where }) {
+function ReportLink({ phrases, where, hide }) {
   const [open, setOpen] = useState(false);
   if (!stats.ready() || !phrases.length) return null;
   return html`<button type="button" class="link-btn sm report-link" onClick=${() => setOpen(true)}>Нашли неточность во фразе?</button>
-    ${open ? html`<${FeedbackSheet} phrases=${phrases} where=${where} onClose=${() => setOpen(false)} />` : null}`;
+    ${open ? html`<${FeedbackSheet} phrases=${phrases} where=${where} hide=${hide} onClose=${() => setOpen(false)} />` : null}`;
 }
 
 // Two short questions: on the third day after the first lesson and on the fourteenth.
@@ -519,7 +532,7 @@ function SurveySheet({ n, onDone, onClose }) {
       <textarea id="sv-text" class="field area" rows="2" maxlength="1000" value=${text} onInput=${(e) => setText(e.target.value)}
         placeholder=${n === 3 ? 'Что мешает или чего не хватает — по желанию' : 'Что вы теперь можете сказать по-казахски без подсказки?'}></textarea>
       <button type="button" class="btn btn-primary btn-block" disabled=${a < 0 || state === 'sending'} onClick=${send}>Отправить</button>
-      ${state === 'failed' ? html`<span class="say-status" role="status">Не получилось отправить — проверь интернет и попробуй ещё раз.</span>` : null}
+      ${state === 'failed' ? html`<span class="say-status" role="status">Не получилось отправить — проверьте интернет и попробуйте ещё раз.</span>` : null}
       <span class="done-links"><button type="button" class="link-btn" onClick=${() => onDone('skip')}>Пропустить</button></span>
     </div>
   </div>`;
@@ -605,6 +618,8 @@ function shuffle(list) {
 
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 const lc = (s) => (s ? s[0].toLowerCase() + s.slice(1) : s);
+// A title inside a sentence: «Новая тема: как пройти», but an acronym keeps its capitals («ЦОН и документы»).
+const lower = (s) => (s && !/^[А-ЯЁӘҒҚҢӨҰҮҺІA-Z]{2}/.test(s) ? lc(s) : s);
 
 /* ---------- course state ---------- */
 
@@ -692,7 +707,8 @@ function convOpen(st, ti, ci) {
   const idx = ALL_CONVS.findIndex((x) => x.ti === ti && x.ci === ci);
   const cur = ALL_CONVS[idx];
   if (idx <= 0 || st.done[cur.c.id] || topicKnown(st, cur.t) || ci < 2) return true;
-  if (!lessonKnown(st, ALL_CONVS[idx - 1])) return false;
+  // Every lesson before it in the topic is behind: «Скажи голосом» comes after «Послушай» and «Ответь».
+  if (!ALL_CONVS.slice(idx - ci, idx).every((x) => lessonKnown(st, x))) return false;
   return ci === 2 || reached(st, ti);
 }
 
@@ -705,10 +721,18 @@ const stepBehind = (st, x) => (x.cp ? cpTaken(st, x.cp) : lessonKnown(st, x));
 // On the way: a lesson done somewhere ahead, by the flexible entry, does not move the way on.
 const onWay = (st, x) => (x.cp ? cpTaken(st, x.cp) : lessonKnown(st, x) && reached(st, x.ti));
 
-// The step after the furthest one on the way — a lesson or a рубеж, in one level or in the whole
-// course; lessons done ahead are passed over, steps left behind come after the end.
+// The circle the learner goes through now: the first one whose итог круга is not taken yet. The first
+// topic of every circle is open (the phrasebook leads to «Работа» of B1): a lesson there does not move
+// the learner into that circle.
+const FINALS = CHECKS.filter((cp) => cp.final);
+const curLevel = (st) => (FINALS.find((cp) => !cpTaken(st, cp)) || {}).level || '';
+
+// The step after the furthest one on the way — a lesson or a рубеж, in one level, or else in the
+// circle the learner goes through now (the whole course once every итог is taken); lessons done ahead
+// are passed over, steps left behind come after the end.
 function nextUp(st, level) {
-  const list = level ? PATH.filter((x) => x.t.level === level) : PATH;
+  const lv = level || curLevel(st);
+  const list = lv ? PATH.filter((x) => x.t.level === lv) : PATH;
   let last = -1;
   list.forEach((x, i) => { if (onWay(st, x)) last = i; });
   return list.slice(last + 1).find((x) => !stepBehind(st, x)) || list.find((x) => !stepBehind(st, x)) || null;
@@ -720,7 +744,7 @@ const goStep = (go, nx) => (nx.cp ? go('test', { id: nx.cp.id }) : go('conv', { 
 function stepLabel(nx, ti) {
   if (!nx) return 'Вернуться в «Мой круг»';
   if (nx.cp) return nx.cp.final ? 'Дальше: итог круга' : 'Дальше: рубеж';
-  return nx.ti === ti ? `Дальше: ${KINDS[nx.c.kind].label.toLowerCase()}` : `Новая тема: ${nx.t.title.toLowerCase()}`;
+  return nx.ti === ti ? `Дальше: ${KINDS[nx.c.kind].label.toLowerCase()}` : `Новая тема: ${lower(nx.t.title)}`;
 }
 const TOPIC_W = ['тема', 'темы', 'тем'];
 const Q_W = ['вопрос', 'вопроса', 'вопросов'];
@@ -880,7 +904,7 @@ function Onboard({ st, update, done }) {
   ];
   const starts = [
     ['zero', 'Начинаю с нуля', 'начнём с приветствий'],
-    ['some', 'Немного знаю', 'проверим уровень за 5 минут'],
+    ['some', 'Немного знаю', 'проверим уровень, до 5 минут'],
   ];
 
   // Russian is the only language of explanations so far: there is nothing to choose yet, and Bota
@@ -901,7 +925,7 @@ function Onboard({ st, update, done }) {
       <div class="opts">${modes.map(([id, title, sub]) => html`
         <button type="button" class=${'opt mode' + (mode === id ? ' sel' : '')} aria-pressed=${mode === id} onClick=${() => setMode(id)}>
           <span>${title}</span><small>${sub}</small></button>`)}</div>
-      <button type="button" class="btn btn-primary btn-block" onClick=${() => { stats.track('onboard_mode', { mode }); toStep(mode === 'talk' ? 2 : 3); }}>Дальше</button>
+      <button type="button" class="btn btn-primary btn-block" onClick=${() => { stats.track('onboard_mode', { mode }); if (mode === 'talk') toStep(2); else finish(); }}>Дальше</button>
     </div>`;
   } else if (step === 2) {
     panel = html`<div class="panel-in">
@@ -993,7 +1017,12 @@ function cpStatus(st, cp, nx) {
 function cpNote(st, cp, status) {
   const c = cpState(st, cp);
   const last = TOPIC_BY_ID.get(cp.topics[cp.topics.length - 1]);
-  if (status === 'pass') return c.of ? `взят: ${c.ok} из ${c.of}` : 'взят по входному тесту';
+  // A рубеж taken stays taken: its best attempt, not a weaker try after it; one taken by the entrance
+  // test and never passed by an attempt says so.
+  if (status === 'pass') {
+    const best = c.of ? Math.round(Math.max(c.best || 0, c.ok / c.of) * c.of) : 0;
+    return c.of && passes(best, c.of) ? `взят: ${best} из ${c.of}` : 'взят по входному тесту';
+  }
   if (status === 'taken') return `${c.ok} из ${c.of} — возьмёшь от ${need(c.of)}, можно ещё раз`;
   if (status === 'locked') return `после темы «${last.title}»: ${cpSize(cp)} ${plural(cpSize(cp), Q_W)} без перевода`;
   return `${cpSize(cp)} ${plural(cpSize(cp), Q_W)} без перевода${cp.final ? ' по всем темам круга' : ''}`;
@@ -1113,7 +1142,7 @@ function NextCard({ st, go, level, setLevel }) {
   // A newcomer who knows some Kazakh already can start further on.
   const placeLink = first && !st.place.day ? [['Уже знаю основы — проверить уровень', () => go('test', { id: 'place' })]] : [];
   return html`<section class="card next">
-    <span class="muted sm">${nx.t.title.toLowerCase()} · урок ${nx.ci + 1} из ${nx.t.convs.length}</span>
+    <span class="muted sm">${lower(nx.t.title)} · урок ${nx.ci + 1} из ${nx.t.convs.length}</span>
     <b class="h3">${nextTitle(nx)}</b>
     <button type="button" class="btn btn-primary btn-block" onClick=${step}>
       <${Icon} name=${isSkill(nx.c) ? KINDS[kind].icon : 'chat'} size=${20} /> ${first ? 'Начать первый разговор' : isSkill(nx.c) ? 'Начать урок' : 'Продолжить разговор'}
@@ -1212,10 +1241,10 @@ function TopicScreen({ st, ti, go, back }) {
   // Ahead of the way: the first lessons are open already, the rest when the way comes here.
   const ahead = !reached(st, ti) && rows.some((r) => !r.done);
   const cta = target ? `Начать: ${KINDS[target.c.kind].label.toLowerCase()}`
-    : before ? `Сначала: ${before.cp ? (before.cp.final ? 'итог круга' : 'рубеж') : before.t.title.toLowerCase()}`
+    : before ? `Сначала: ${before.cp ? (before.cp.final ? 'итог круга' : 'рубеж') : lower(before.t.title)}`
       : gate ? (gate.final ? 'Начать итог круга' : 'Начать рубеж') : race ? 'Бәйге — скачки по теме' : 'Пройти тему ещё раз';
-  const onCta = () => (target ? go('conv', { ti, ci: target.ci }) : before ? goStep(go, before)
-    : gate ? go('test', { id: gate.id }) : race ? go('race', { ti }) : go('conv', { ti, ci: 0 }));
+  const onCta = () => (target ? go('conv', { ti, ci: target.ci, back }) : before ? goStep(go, before)
+    : gate ? go('test', { id: gate.id }) : race ? go('race', { ti, back }) : go('conv', { ti, ci: 0, back }));
   return html`<main class="screen">
     <${TopBar} title=${t.title} sub=${t.kk} subLang="kk" onBack=${() => go(back || 'home')} backLabel=${back === 'phrasebook' ? 'Вернуться в разговорник' : 'Вернуться в «Мой круг»'} />
     <div class="scroll pad topic">
@@ -1224,7 +1253,7 @@ function TopicScreen({ st, ti, go, back }) {
       ${known ? html`<span class="mem-note"><${Icon} name="gate" size=${18} />Знакомая тема по входному тесту: уроки открыты, можно пройти любой.</span>`
         : ahead ? html`<span class="mem-note"><${Icon} name="next" size=${18} />Тема впереди: первые уроки открыты уже сейчас, остальные — когда дойдёшь до неё по кругу.</span>` : null}
       <ol class="conv-list">${rows.map((r) => html`<li>
-        <button type="button" class=${'conv-row ' + (r.done ? 'done' : r === target ? 'open' : r.open ? '' : 'locked')} disabled=${!r.open} onClick=${() => go('conv', { ti, ci: r.ci })}>
+        <button type="button" class=${'conv-row ' + (r.done ? 'done' : r === target ? 'open' : r.open ? '' : 'locked')} disabled=${!r.open} onClick=${() => go('conv', { ti, ci: r.ci, back })}>
           <span class="conv-ic"><${Icon} name=${KINDS[r.c.kind].icon} size=${20} /></span>
           <span class="grow"><b>${KINDS[r.c.kind].label}</b><span class="muted sm">${r.c.title}</span></span>
           ${r.done ? html`<span class="state ok" aria-label="пройден"><${Icon} name="check" size=${16} stroke=${3} /></span>`
@@ -1239,7 +1268,7 @@ function TopicScreen({ st, ti, go, back }) {
           : cps === 'locked' ? html`<span class="state" aria-label="закрыт"><${Icon} name="lock" size=${16} /></span>`
           : html`<span class="state"><${Icon} name="next" size=${18} stroke=${2.4} /></span>`}
       </button>` : null}
-      ${race && (!passed || gate) ? html`<button type="button" class="conv-row race-row" onClick=${() => go('race', { ti })}>
+      ${race && (!passed || gate) ? html`<button type="button" class="conv-row race-row" onClick=${() => go('race', { ti, back })}>
         <span class="conv-ic"><${Icon} name="flag" size=${20} /></span>
         <span class="grow"><b><span lang="kk">Бәйге</span> по теме</b><span class="muted sm">${st.race.best[t.id]
           ? `${t.words.length} пар на время · рекорд ${raceTime(st.race.best[t.id])}` : `скачки: ${t.words.length} пар слов на время`}</span></span>
@@ -1877,7 +1906,7 @@ function Tomorrow({ st }) {
   return html`<span class="mem-note"><${Icon} name="ornament" size=${20} />Завтра: ${parts.join(' · ')}</span>`;
 }
 
-function DonePanel({ st, update, conv, ti, ci, result, v, go, said }) {
+function DonePanel({ st, update, conv, ti, ci, result, v, go, said, back }) {
   const streak = streakOf(st.days);
   // The third lesson of a topic, done for the first time, opens the race of its words.
   const topic = PLAYABLE[ti];
@@ -1887,7 +1916,8 @@ function DonePanel({ st, update, conv, ti, ci, result, v, go, said }) {
   const inTopic = topic.convs.findIndex((c, i) => i > ci && !st.done[c.id] && convOpen(st, ti, i));
   const nx = (inTopic > ci ? ALL_CONVS.find((x) => x.ti === ti && x.ci === inTopic) : null) || nextUp(st, PLAYABLE[ti].level) || nextUp(st);
   const nextText = nx ? stepLabel(nx, ti) : null;
-  const toNext = () => (nx ? goStep(go, nx) : go('home'));
+  // The next lesson of the same topic keeps the way back (to the phrasebook).
+  const toNext = () => (!nx ? go('home') : !nx.cp && nx.ti === ti ? go('conv', { ti, ci: nx.ci, back }) : goStep(go, nx));
   const note = result.added ? `${result.added} ${plural(result.added, PHR_W)} — в памяти, повторим завтра`
     : conv.kind === 'pron' ? 'Повторяй эти слова вслух — так звук закрепится'
     : conv.kind === 'write' ? `Без подсказки: ${result.clean} из ${result.typed}`
@@ -1895,9 +1925,9 @@ function DonePanel({ st, update, conv, ti, ci, result, v, go, said }) {
   const cando = html`<div class="cando"><span class="eyebrow">ТЕПЕРЬ ТЫ УМЕЕШЬ</span>
     ${conv.can.map(([ru, kk]) => html`<span class="cando-row"><span class="tick"><${Icon} name="check" size=${12} stroke=${3.4} /></span>
       <span>${ru} — <b class="kk" lang="kk">${fill(kk, v)}</b></span></span>`)}</div>`;
-  const race = opened ? html`<button type="button" class="m-rule race-open" onClick=${() => go('race', { ti })}>
+  const race = opened ? html`<button type="button" class="m-rule race-open" onClick=${() => go('race', { ti, back })}>
     <${Icon} name="flag" size=${18} /><span>Открылась <span lang="kk">бәйге</span> — скачки на ${topic.words.length} словах темы</span></button>` : null;
-  const again = html`<button type="button" class="link-btn" onClick=${() => go('conv', { ti, ci, k: Date.now() })}>Пройти ещё раз</button>`;
+  const again = html`<button type="button" class="link-btn" onClick=${() => go('conv', { ti, ci, k: Date.now(), back })}>Пройти ещё раз</button>`;
   if (result.closed) {
     return html`<div class="panel-in done">
       <${DayHead} st=${st} />
@@ -1907,7 +1937,7 @@ function DonePanel({ st, update, conv, ti, ci, result, v, go, said }) {
       <${RemindRow} st=${st} update=${update} />
       <button type="button" class="btn btn-primary btn-block" onClick=${() => go('home')}>Готово на сегодня</button>
       <span class="done-links">${nx ? html`<button type="button" class="link-btn" onClick=${toNext}>Ещё урок</button><span aria-hidden="true">·</span>` : null}${again}</span>
-      <${ReportLink} phrases=${said || []} where=${`lesson:${conv.id}`} />
+      <${ReportLink} phrases=${said || []} where=${`lesson:${conv.id}`} hide=${st.profile.name} />
     </div>`;
   }
   return html`<div class="panel-in done">
@@ -1922,11 +1952,11 @@ function DonePanel({ st, update, conv, ti, ci, result, v, go, said }) {
       ${nx ? html`<button type="button" class="link-btn" onClick=${() => go('home')}>В «Мой круг»</button><span aria-hidden="true">·</span>` : null}
       ${again}
     </span>
-    <${ReportLink} phrases=${said || []} where=${`lesson:${conv.id}`} />
+    <${ReportLink} phrases=${said || []} where=${`lesson:${conv.id}`} hide=${st.profile.name} />
   </div>`;
 }
 
-function ConvScreen({ st, update, ti, ci, go }) {
+function ConvScreen({ st, update, ti, ci, go, back }) {
   const t = PLAYABLE[ti];
   const conv = t.convs[ci];
   const person = PEOPLE[t.who];
@@ -2103,9 +2133,10 @@ function ConvScreen({ st, update, ti, ci, go }) {
 
   let panel = null;
   if (result) {
-    // The Kazakh lines of this lesson, for «Нашли неточность во фразе?».
-    const said = [...new Set(log.filter((m) => m.kk).map((m) => m.kk))];
-    panel = html`<${DonePanel} st=${st} update=${update} conv=${conv} ti=${ti} ci=${ci} result=${result} v=${v} go=${go} said=${said} />`;
+    // The Kazakh lines of this lesson, for «Нашли неточность во фразе?»: lines of the course, not what
+    // the learner typed.
+    const said = [...new Set(log.filter((m) => m.kk && !m.typed).map((m) => m.kk))];
+    panel = html`<${DonePanel} st=${st} update=${update} conv=${conv} ti=${ti} ci=${ci} result=${result} v=${v} go=${go} said=${said} back=${back} />`;
   } else if (step && isTurn(step) && !typing) {
     if (step.check) {
       // «Медленно» plays the lines of this question again; heard ones can be read instead for the rest.
@@ -2147,7 +2178,7 @@ function ConvScreen({ st, update, ti, ci, go }) {
           typed.current.n += 1;
           if (grade === 3) typed.current.clean += 1;
           if (step.ph && stRef.current.mem[step.ph]) update((d) => { d.mem[step.ph] = fsrs.review(d.mem[step.ph], grade); });
-          advance([{ k: 'me', kk: message, ru: val(step.ru, v) }]);
+          advance([{ k: 'me', kk: message, ru: val(step.ru, v), typed: true }]);
         }} />`;
     }
   }
@@ -2168,7 +2199,7 @@ function ConvScreen({ st, update, ti, ci, go }) {
 
   return html`<main class="screen conv">
     <header class="conv-head pad">
-      <button type="button" class="icon-btn" aria-label="Назад к теме" onClick=${() => go('topic', { ti })}><${Icon} name="back" size=${24} stroke=${2.2} /></button>
+      <button type="button" class="icon-btn" aria-label="Назад к теме" onClick=${() => go('topic', { ti, back })}><${Icon} name="back" size=${24} stroke=${2.2} /></button>
       <${Avatar} who=${t.who} size=${40} />
       <span class="conv-who"><b>${person.name}</b>
         <span class="conv-prog"><span class="dots" aria-hidden="true">${Array.from({ length: turns }, (_, i) => html`<i class=${i < turnsDone || result ? 'd' : i === turnsDone ? 'c' : ''}></i>`)}</span>${label}</span></span>
@@ -2176,7 +2207,8 @@ function ConvScreen({ st, update, ti, ci, go }) {
     </header>
     <div class="scroll chat pad" ref=${scroller}>
       <div class="msgs" role="log" aria-live="polite">
-        ${showNoVoice ? html`<div class="banner"><span>Здесь фразы пока без звука: в этом браузере нет казахского голоса. Со звуком они работают <a href=${SITE} target="_blank" rel="noopener">в Боте по ссылке</a> и в Microsoft Edge.</span>
+        ${showNoVoice ? html`<div class="banner"><span>${SITE_BUILD && voice.waiting() ? 'Здесь фразы пока без звука: записи не загрузились. Проверь интернет — звук появится сам.'
+          : html`Здесь фразы пока без звука: в этом браузере нет казахского голоса. Со звуком они работают <a href=${SITE} target="_blank" rel="noopener">в Боте по ссылке</a> и в Microsoft Edge.`}</span>
           <button type="button" class="btn-chip" onClick=${() => update((d) => { d.seen.noVoice = true; })}>Понятно</button></div>` : null}
         <span class="conv-kind">${KINDS[conv.kind].label} · ${conv.title}</span>
         ${log.map((m, i) => html`<${Msg} key=${i} m=${m} tr=${tr || !!opened[i]} all=${tr} hint=${i === firstLine && !tr && !st.seen.trTap}
@@ -2184,7 +2216,7 @@ function ConvScreen({ st, update, ti, ci, go }) {
         ${typing ? html`<div class="m-row left"><div class="b b-npc typing" aria-label="печатает"><i></i><i></i><i></i></div></div>` : null}
       </div>
     </div>
-    <div class="composer pad" ref=${composer} hidden=${!panel}>${panel}</div>
+    <div class=${'composer pad' + (result ? ' ended' : '')} ref=${composer} hidden=${!panel}>${panel}</div>
     ${sheet ? html`<${RuleSheet} id=${sheet} onClose=${() => setSheet(null)} />` : null}
   </main>`;
 }
@@ -2214,8 +2246,8 @@ function TestDone({ st, go, cp, res }) {
     return html`<div class="panel-in done">
       <div class="done-head"><${Bota} size=${44} />
         <span class="grow"><b class="h3">${head}</b><span class="gold-text sm">${sub}</span></span></div>
-      <span class="mem-note"><${Icon} name="gate" size=${20} />${anew ? 'Темы открываются по порядку, а после каждых 3–4 тем — рубеж.'
-        : 'Знакомые темы открыты: в них можно заглянуть, и бәйге по ним тоже открыта.'}</span>
+      <span class="mem-note"><${Icon} name="gate" size=${20} />${known ? 'Знакомые темы открыты: в них можно заглянуть, и бәйге по ним тоже открыта.'
+        : 'Темы идут по порядку, а после каждых 3–4 — рубеж.'}</span>
       <button type="button" class="btn btn-primary btn-block" onClick=${toNext}>${label}</button>
       <${LinkRow} items=${[nx && home]} />
     </div>`;
@@ -2249,7 +2281,7 @@ function TestDone({ st, go, cp, res }) {
 // counts the right answers, brings back to the memory what was not right and is taken at 70%. The
 // entrance test asks up to three questions about one stretch of topics after another — two right go on,
 // two wrong stop it — and the stretches before the one it stops at become known.
-function TestScreen({ st, update, go, id }) {
+function TestScreen({ st, update, go, id, back }) {
   const place = id === 'place';
   const cp = place ? null : cpById(id);
   const lv = cp ? levelOf(cp.level) : null;
@@ -2264,7 +2296,7 @@ function TestScreen({ st, update, go, id }) {
     const n = items.length;
     const hello = place ? 'Проверим, что ты уже знаешь: вопросы будут всё сложнее. Не уверен(а) — нажми «Не знаю», так тест точнее.'
       : cp.final ? `Итог круга: ${n} ${plural(n, Q_W)} по всем его темам — слушать, читать, писать и говорить, как в блоках КАЗТЕСТ. Без перевода и подсказок.`
-        : `Рубеж: ${n} ${plural(n, Q_W)} от тех, с кем ты уже говорил(а). Без перевода и подсказок — что не вспомнится, вернётся в память.`;
+        : `Рубеж: ${n} ${plural(n, Q_W)} от тех, с кем ты уже говорил(а). Без перевода и подсказок — фразы, которые не вспомнятся, вернутся в память.`;
     return [{ k: 'tip', text: hello }, ...(items.length ? [{ k: 'note', text: TOPIC_BY_ID.get(items[0].topic).title }] : [])];
   });
   const [typing, setTyping] = useState(false);
@@ -2287,6 +2319,19 @@ function TestScreen({ st, update, go, id }) {
   stRef.current = st;
   const it = items[idx];
   const v = varsOf(st);
+  // The stretch of the entrance test asked now: the ones before it are passed.
+  const segNow = useRef(first);
+  if (place && it) segNow.current = it.seg;
+
+  // The stretches before «at» are known: passed by the test (by: 'test' when never tried).
+  const keepPlace = (at) => update((d) => {
+    CHECKS.slice(0, at).forEach((x) => {
+      const w = d.checks[x.id] || {};
+      if (!w.pass) d.checks[x.id] = { ...w, pass: dayKey(), by: w.day ? '' : 'test' };
+    });
+    d.place = { day: dayKey(), at };
+    d.days[dayKey()] = true;
+  });
 
   useEffect(() => {
     stats.track('test', { id, kind: place ? 'place' : cp.final ? 'final' : 'check' });
@@ -2294,7 +2339,11 @@ function TestScreen({ st, update, go, id }) {
       voice.stop();
       mic.stopPlaying();
       recordings.current.forEach((url) => URL.revokeObjectURL(url));
-      if (!over.current) stats.track('test_quit', { id, at: marks.current.length });
+      if (!over.current) {
+        stats.track('test_quit', { id, at: marks.current.length });
+        // Left halfway, the entrance test keeps what it found so far.
+        if (place && segNow.current > first) keepPlace(segNow.current);
+      }
     };
   }, []);
 
@@ -2385,14 +2434,7 @@ function TestScreen({ st, update, go, id }) {
 
   function finishPlace(at) {
     const all = marks.current;
-    update((d) => {
-      CHECKS.slice(0, at).forEach((x) => {
-        const w = d.checks[x.id] || {};
-        if (!w.pass) d.checks[x.id] = { ...w, pass: dayKey(), by: w.day ? '' : 'test' };
-      });
-      d.place = { day: dayKey(), at };
-      d.days[dayKey()] = true;
-    });
+    keepPlace(at);
     over.current = true;
     // start — the first topic of the stretch the learner starts at (end — the whole course is known).
     stats.track('test_done', { id: 'place', kind: 'place', from: first, at, start: at < CHECKS.length ? CHECKS[at].topics[0] : 'end',
@@ -2483,10 +2525,10 @@ function TestScreen({ st, update, go, id }) {
   const title = place ? 'Входной тест' : cp.final ? `Итог круга «${lv.title}»` : 'Рубеж';
   const at = it || items[items.length - 1];
   const label = result ? 'готово' : place ? `${at ? CHECKS[at.seg].level : ''} · вопрос ${idx + 1}` : `вопрос ${Math.min(idx + 1, items.length)} из ${items.length}`;
-  const kind = place ? 'Входной тест · до 7 минут' : cp.final ? `Итог круга · ${lv.id}` : `Рубеж · ${lv.id} · ${cp.topics.length} ${plural(cp.topics.length, TOPIC_W)}`;
+  const kind = place ? 'Входной тест · до 5 минут' : cp.final ? `Итог круга · ${lv.id}` : `Рубеж · ${lv.id} · ${cp.topics.length} ${plural(cp.topics.length, TOPIC_W)}`;
   return html`<main class="screen conv">
     <header class="conv-head pad">
-      <button type="button" class="icon-btn" aria-label="Выйти" onClick=${() => go('home')}><${Icon} name="back" size=${24} stroke=${2.2} /></button>
+      <button type="button" class="icon-btn" aria-label="Выйти" onClick=${() => go(back || 'home')}><${Icon} name="back" size=${24} stroke=${2.2} /></button>
       ${place ? html`<${Bota} size=${40} />` : html`<span class="test-ic"><${Icon} name="gate" size=${20} /></span>`}
       <span class="conv-who"><b>${title}</b><span class="conv-prog">${label}</span></span>
     </header>
@@ -2497,7 +2539,7 @@ function TestScreen({ st, update, go, id }) {
         ${typing ? html`<div class="m-row left"><div class="b b-npc typing" aria-label="печатает"><i></i><i></i><i></i></div></div>` : null}
       </div>
     </div>
-    <div class="composer pad" ref=${composer} hidden=${!panel}>${panel}</div>
+    <div class=${'composer pad' + (result ? ' ended' : '')} ref=${composer} hidden=${!panel}>${panel}</div>
   </main>`;
 }
 
@@ -2648,7 +2690,7 @@ function Review({ st, update, go, only, back }) {
         ${queue.length ? html`<span class="muted">Вспомнил(а): ${okCount} из ${queue.length}</span>` : null}
         ${nd ? html`<span class="muted">Следующее повторение — ${whenText(nd)}</span>`
           : html`<span class="muted">${forBaby ? 'Подготовьтесь к ритуалу — и его фразы попадут в память.' : 'Пройди разговор — и фразы попадут в память.'}</span>`}
-        ${onward ? html`<span class="muted sm">Дальше: ${lc(nextTitle(nx))}</span>` : null}
+        ${onward ? html`<span class="muted sm">Дальше: ${nx.cp || nx.c.kind === 'pron' ? lc(nextTitle(nx)) : nextTitle(nx)}</span>` : null}
       </div>
       <div class="bottom pad">${onward
         ? html`<button type="button" class="btn btn-primary btn-block" onClick=${toNext}>${nx.cp ? (nx.cp.final ? 'Начать итог круга' : 'Начать рубеж') : isSkill(nx.c) ? 'Начать урок' : 'Продолжить разговор'}</button>
@@ -2698,7 +2740,7 @@ function Review({ st, update, go, only, back }) {
         <b class="rev-ru">${fill(ph.ru, v)}</b>
         ${open ? html`<span class="rev-kk"><b lang="kk">${right}</b><${SpeakBtn} text=${right} /></span>` : null}
       </div>
-      <p class="muted sm center" role="status">${open ? 'Как вспомнилось?' : 'Вспомни и скажи вслух — потом проверь себя.'}</p>
+      <p class="muted sm center" role="status">${open ? 'Как вспомнилось?' : forBaby ? 'Вспомните и скажите вслух — потом проверьте себя.' : 'Вспомни и скажи вслух — потом проверь себя.'}</p>
     </div>
     <div class="bottom pad" ref=${bottom}>${open
       ? html`<div class="grades" role="group" aria-label="Как вспомнилось">${GRADES.map(([g, label]) => html`
@@ -2791,7 +2833,7 @@ function RaceRow({ st, go }) {
 // A race alone runs against the record or, the first time, against Bota. A duel is played in turns
 // on one phone: both players get the same words in their own order, and the second one sees the
 // first one's pace on the track. A duel changes no record; it counts as a day of practice.
-function RaceScreen({ st, update, go, ti, quick, setup, duel: duelIn }) {
+function RaceScreen({ st, update, go, ti, quick, setup, duel: duelIn, back: from }) {
   const topic = ti != null ? PLAYABLE[ti] : null;
   const key = topic ? topic.id : 'mix';
   const me = st.profile.name || 'Ты';
@@ -2825,7 +2867,7 @@ function RaceScreen({ st, update, go, ti, quick, setup, duel: duelIn }) {
   const [record] = useState(() => st.race.best[key] || null);
   const total = set.length;
   const target = record || total * BOTA_PACE;
-  const back = () => (topic ? go('topic', { ti }) : go('home'));
+  const back = () => (topic ? go('topic', { ti, back: from }) : go('home'));
   const rivalName = cap(rival.trim().replace(/\s+/g, ' ').slice(0, 24));
 
   const elapsed = () => {
@@ -3257,6 +3299,10 @@ const isSong = (s) => s.group === 'songs';
 const ritualOf = (id) => BABY.find((x) => x.id === id) || BABY[0];
 const knownOf = (st, s) => s.items.filter((_, i) => st.mem[babyId(s.id, i)]).length;
 
+// The day of «Малыш» ends at four in the morning: what was prepared in the evening is marked after
+// midnight on the same day. The streak counts calendar days (st.days).
+const babyDay = (d = new Date()) => dayKey(new Date(d.getTime() - 4 * 3600000));
+
 // The part of the day that «Сейчас подходит» looks at.
 function partOfDay(now = new Date()) {
   const h = now.getHours();
@@ -3265,7 +3311,7 @@ function partOfDay(now = new Date()) {
 
 // The ritual that fits the time of day and the baby's age and has been neither prepared nor said today.
 function suggestRitual(st, now = new Date()) {
-  const day = dayKey(now);
+  const day = babyDay(now);
   const said = (st.baby.said || {})[day] || {};
   const prep = (st.baby.prep || {})[day] || {};
   const timed = BABY_NOW[partOfDay(now)].map((id) => BABY.find((s) => s.id === id)).filter(Boolean);
@@ -3276,7 +3322,7 @@ function suggestRitual(st, now = new Date()) {
 
 // Marked in the evening: a phrase said to the baby today. A phrase not yet in the memory joins it.
 function toggleSaid(update, pid) {
-  const today = dayKey();
+  const today = babyDay();
   update((d) => {
     d.baby.said = d.baby.said || {};
     const day = { ...(d.baby.said[today] || {}) };
@@ -3286,12 +3332,18 @@ function toggleSaid(update, pid) {
       if (!d.mem[`b:${pid}`]) d.mem[`b:${pid}`] = fsrs.review(null, 2);
     }
     d.baby.said[today] = day;
-    if (Object.keys(day).length) d.days[today] = true;
+    if (Object.keys(day).length) d.days[dayKey()] = true;
   });
 }
 
 // «Замени слово»: a phrase of the ritual with a place for a word — «Міне, шұлығың!» — and the words
 // that fit there.
+// The literal sense of an endearment in a phrase or a word: «қозым — букв. «мой ягнёнок»» (ENDEARMENTS).
+function literalOf(kk) {
+  const w = normType(kk).split(' ').find((x) => ENDEARMENTS[x]);
+  return w ? `${w} — букв. «${ENDEARMENTS[w]}»` : '';
+}
+
 const swapKk = (swap, w) => fillSlot(swap.kk, w[0]).join('');
 const swapRu = (swap, w) => w[2] || fillSlot(swap.ru, w[1]).join('');
 
@@ -3307,7 +3359,7 @@ function SwapCard({ swap, sound }) {
   return html`<section class="card swap">
     <span class="eyebrow">ЗАМЕНИ СЛОВО</span>
     <span class="swap-line"><b class="kk" lang="kk" aria-live="polite">${a}<span class="swap-slot">${mid}</span>${b}</b><${SpeakBtn} text=${a + mid + b} /></span>
-    <span class="muted sm">${swapRu(swap, w)}</span>
+    <span class="muted sm">${swapRu(swap, w)}${literalOf(w[0]) ? html`<span class="literal"> · ${literalOf(w[0])}</span>` : null}</span>
     <div class="age-chips" role="group" aria-label="Слова на замену">${swap.words.map((x, i) => html`
       <button type="button" class=${'chip-btn' + (i === k ? ' sel' : '')} aria-pressed=${i === k} lang="kk" onClick=${() => pick(i)}>${x[0]}</button>`)}</div>
   </section>`;
@@ -3333,7 +3385,7 @@ function BabyNow({ st, go, s }) {
 // What the baby heard this week; in the evening — today's marks, on one screen.
 function BabyWeek({ st, go }) {
   const said = st.baby.said || {};
-  const saidToday = Object.keys(said[dayKey()] || {}).length;
+  const saidToday = Object.keys(said[babyDay()] || {}).length;
   const week = weekKeys().reduce((n, k) => n + Object.keys(said[k] || {}).length, 0);
   const started = week > 0 || Object.keys(st.baby.prep || {}).length > 0 || Object.keys(st.mem).some(isBaby);
   if (!started) return null;
@@ -3414,7 +3466,7 @@ function Baby({ st, update, go }) {
 
 // All rituals and songs, by the time of day and by theme.
 function BabyAll({ st, go }) {
-  const today = (st.baby.said || {})[dayKey()] || {};
+  const today = (st.baby.said || {})[babyDay()] || {};
   const songs = BABY.filter(isSong).length;
   const rituals = BABY.length - songs;
   return html`<main class="screen">
@@ -3449,7 +3501,7 @@ function BabyScenario({ st, go, id, back }) {
       <div class="m-tip static"><${Bota} size=${28} /><span>${s.tip}</span></div>
       <div class="ph-list">${s.items.map(([kk, ru], i) => html`<div class="ph-row" key=${i}>
         <${SpeakBtn} text=${kk} />
-        <span class="grow"><b class="kk" lang="kk">${kk}</b><span class="muted sm">${ru}</span></span>
+        <span class="grow"><b class="kk" lang="kk">${kk}</b><span class="muted sm">${ru}</span>${literalOf(kk) ? html`<span class="literal sm">${literalOf(kk)}</span>` : null}</span>
         ${st.mem[babyId(s.id, i)] ? html`<span class="mem-mark" role="img" aria-label="В памяти" title="В памяти"><${Icon} name="ornament" size=${18} /></span>` : null}
       </div>`)}</div>
       ${s.swap ? html`<${SwapCard} key=${s.id} swap=${s.swap} sound=${st.settings.voice} />` : null}
@@ -3496,11 +3548,11 @@ function BabyPrep({ st, update, go, id, back, from }) {
   useEffect(() => {
     if (step || ended.current) return;
     ended.current = true;
-    const today = dayKey();
+    const today = babyDay();
     update((d) => {
       d.baby.prep = d.baby.prep || {};
       d.baby.prep[today] = { ...(d.baby.prep[today] || {}), [s.id]: true };
-      d.days[today] = true;
+      d.days[dayKey()] = true;
     });
     stats.track('baby_prep', { r: s.id, n: s.items.length, fresh: learned.current, ok: score.current.ok });
   }, [step]);
@@ -3559,6 +3611,7 @@ function BabyPrep({ st, update, go, id, back, from }) {
           <span class="say-kk" lang="kk">${kk}</span>
           <span class="say-syl" lang="kk">${syllables(kk)}</span>
           <span class="say-ru">«${ru}»</span>
+          ${literalOf(kk) ? html`<span class="literal sm">${literalOf(kk)}</span>` : null}
           ${voice.canSay(kk) ? html`<div class="say-ctl">
               <button type="button" class="ctl" onClick=${() => voice.speak(kk)}><${SpeakerGlyph} size=${16} /> Послушать</button>
               <button type="button" class="ctl" onClick=${() => voice.slow(kk)}>Медленно</button></div>`
@@ -3589,7 +3642,7 @@ function BabyPrep({ st, update, go, id, back, from }) {
 // The evening: one screen to mark what was said to the baby today, one tap a phrase. Rituals prepared
 // or marked today are open; others the memory holds stay folded until tapped.
 function BabyDay({ st, update, go }) {
-  const today = dayKey();
+  const today = babyDay();
   const said = (st.baby.said || {})[today] || {};
   const prep = (st.baby.prep || {})[today] || {};
   const touched = (s) => prep[s.id] || s.items.some((_, i) => said[`${s.id}.${i}`]);
@@ -3723,8 +3776,8 @@ function Profile({ st, update, go }) {
         </div>
         <div class="set-row">
           <span class="grow"><b>Входной тест</b><span class="muted sm">${st.place.day ? `пройден ${Number(st.place.day.slice(8))} ${MONTHS_GEN[Number(st.place.day.slice(5, 7)) - 1]}`
-            : '5–7 минут, чтобы начать с подходящей темы'}</span></span>
-          <button type="button" class="btn-chip" onClick=${() => go('test', { id: 'place' })}>${st.place.day ? 'Ещё раз' : 'Пройти'}</button>
+            : 'до 5 минут, чтобы начать с подходящей темы'}</span></span>
+          <button type="button" class="btn-chip" onClick=${() => go('test', { id: 'place', back: 'profile' })}>${st.place.day ? 'Ещё раз' : 'Пройти'}</button>
         </div>
       </section>` : null}
       <section class="card settings">
@@ -3830,10 +3883,10 @@ function upRoute(route, st) {
   const start = st.profile.mode === 'baby' ? 'baby' : 'home';
   switch (route.name) {
     case 'topic': return { name: route.back || 'home' };
-    case 'test': return { name: 'home' };
+    case 'test': return { name: route.back || 'home' };
     case 'review': return { name: route.back || 'home' };
-    case 'conv': return { name: 'topic', ti: route.ti };
-    case 'race': return route.ti != null ? { name: 'topic', ti: route.ti } : { name: 'home' };
+    case 'conv': return { name: 'topic', ti: route.ti, back: route.back };
+    case 'race': return route.ti != null ? { name: 'topic', ti: route.ti, back: route.back } : { name: 'home' };
     case 'rules': return { name: route.back || 'phrasebook' };
     case 'babyScen': return { name: route.back || 'baby' };
     case 'babyAll': case 'babyDay': return { name: 'baby' };
@@ -3925,20 +3978,20 @@ function App() {
       }} />`;
       break;
     case 'test':
-      screen = html`<${TestScreen} key=${`test-${route.id}-${route.k || 0}`} st=${st} update=${update} go=${go} id=${route.id} />`;
+      screen = html`<${TestScreen} key=${`test-${route.id}-${route.k || 0}`} st=${st} update=${update} go=${go} id=${route.id} back=${route.back} />`;
       break;
     case 'topic':
       screen = html`<${TopicScreen} st=${st} ti=${route.ti} go=${go} back=${route.back} />`;
       break;
     case 'conv':
-      screen = html`<${ConvScreen} key=${`${route.ti}-${route.ci}-${route.k || 0}`} st=${st} update=${update} ti=${route.ti} ci=${route.ci} go=${go} />`;
+      screen = html`<${ConvScreen} key=${`${route.ti}-${route.ci}-${route.k || 0}`} st=${st} update=${update} ti=${route.ti} ci=${route.ci} go=${go} back=${route.back} />`;
       break;
     case 'review':
       screen = html`<${Review} st=${st} update=${update} go=${go} only=${route.only} back=${route.back} />`;
       break;
     case 'race':
       screen = html`<${RaceScreen} key=${`race-${route.ti ?? 'mix'}-${route.k || 0}`} st=${st} update=${update} go=${go} ti=${route.ti}
-        quick=${!!route.quick} setup=${!!route.setup} duel=${route.duel} />`;
+        quick=${!!route.quick} setup=${!!route.setup} duel=${route.duel} back=${route.back} />`;
       break;
     case 'phrasebook':
       screen = html`<${Phrasebook} st=${st} update=${update} go=${go} />`;
@@ -3981,16 +4034,23 @@ function Safe({ children }) {
   const restart = () => {
     try {
       const raw = localStorage.getItem(KEY);
-      if (raw) localStorage.setItem(`${KEY}-broken`, raw);
+      if (raw) keepCopy(raw);
       localStorage.removeItem(KEY);
     } catch (e) { /* nothing to keep */ }
     location.reload();
   };
+  // The progress as the file of «Перенести прогресс»: it opens in «Профиль» → «Загрузить из файла».
+  const saveCopy = async () => {
+    let progress = null;
+    try { progress = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) { /* not readable */ }
+    if (isObj(progress)) await saveFile(`bota-progress-${dayKey()}.json`, JSON.stringify({ app: 'bota', format: 1, saved: new Date().toISOString(), progress }));
+  };
   return html`<main class="screen"><div class="scroll pad crash">
     <${Bota} size=${56} />
     <b class="h2">Что-то пошло не так</b>
-    <span class="muted">Обновите страницу. Если не поможет — начните заново: старый прогресс останется копией в этом браузере.</span>
+    <span class="muted">Обновите страницу. Если не поможет — сохраните прогресс в файл и начните заново: файл потом загружается в «Профиле».</span>
     <button type="button" class="btn btn-primary btn-block" onClick=${() => location.reload()}>Обновить</button>
+    <button type="button" class="btn btn-ghost btn-block" onClick=${saveCopy}>Сохранить прогресс в файл</button>
     <button type="button" class="btn btn-ghost btn-block" onClick=${restart}>Начать заново</button>
   </div></main>`;
 }

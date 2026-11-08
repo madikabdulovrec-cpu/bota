@@ -2,8 +2,8 @@
 // heard and a question about them, a reply to choose or to put together, a message to write, a phrase
 // to say from memory — so they hold no Kazakh of their own, and everything in them has passed the
 // checks of the lessons. No DOM here: tools/validate.mjs tests this module in Node.
-import { TOPICS, PHRASES, CHECKPOINTS } from './content.js?v=e1d30e0';
-import { normType } from './typing.js?v=e1d30e0';
+import { TOPICS, PHRASES, CHECKPOINTS } from './content.js?v=ebc198b';
+import { normType } from './typing.js?v=ebc198b';
 
 const PLAYABLE = TOPICS.filter((t) => !t.soon);
 const TOPIC_AT = new Map(PLAYABLE.map((t, i) => [t.id, i]));
@@ -51,12 +51,14 @@ function safeStep(s) {
 
 // A wrong option that is wrong only by the story of its lesson — «you have greeted already», «you came
 // to the doctor because you feel bad», «agree» — may well be right on its own: a choice with one is
-// left out of the tests, where only the line before it is seen.
+// left out of the tests, where only the line before it is seen. The words below catch most of them;
+// the content marks the rest by hand (story: true — «the scarf is a present for mum»).
 const BY_STORY = /(уже|только что|ты же|вы же|согласи|соглаша|пришёл \(пришла\)|ты пришёл|собираешься|планируешь|зов[её]т|приглаша|советует|просит|хотел\(а\))/i;
 
 function kindOf(c, s, ctx) {
   // A choice with two right replies («Иә…» and «Жоқ…» about oneself) asks nothing to check.
   const opts = s.pick || s.opts;
+  if (s.story) return null;
   if (opts && opts.filter((o) => o.ok).length !== 1) return null;
   if (opts && opts.some((o) => !o.ok && BY_STORY.test(String(o.why)))) return null;
   if (s.check) return s.kk ? 'ask' : ctx.length ? 'listen' : null;

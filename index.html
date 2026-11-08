@@ -518,20 +518,26 @@ button.vplay { cursor: pointer; }
 .baby { display: flex; flex-direction: column; gap: 12px; padding-top: 16px; padding-bottom: 20px; }
 .baby-head > span { display: flex; flex-direction: column; gap: 2px; }
 .baby-title { margin-bottom: 4px; }
-.baby-hero .big { display: flex; align-items: baseline; gap: 10px; }
-.baby-hero .big b { font-family: var(--font-display); font-weight: 900; font-size: 40px; line-height: 1; color: var(--teal-ink); font-variant-numeric: tabular-nums; }
-.baby-hero .big span { font-size: 14px; font-weight: 600; color: var(--ink2); }
-.progress { height: 10px; border-radius: 5px; overflow: hidden; background: var(--chip); }
-.progress span { display: block; height: 100%; border-radius: 5px; background: var(--teal); }
+.baby-now { border: 2px solid var(--teal-line); background: var(--teal-wash); }
+.now-title { display: flex; flex-direction: column; gap: 2px; }
+.now-say { max-width: 100%; margin: 4px 0 6px; }
+.now-say .b { font-size: 17px; animation: none; }
+.swap-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.swap-line b { font-size: 18px; line-height: 1.35; }
+.slot { padding: 0 6px; border-radius: 8px; background: var(--teal-soft); color: var(--teal-ink); }
+.mem-mark { flex-shrink: 0; display: inline-flex; padding: 0 4px; color: var(--gold-deep); }
+.prep { display: flex; flex-direction: column; gap: 12px; padding-top: 16px; padding-bottom: 20px; }
+.prep .say-kk { font-size: 26px; }
+.prep .say-syl { font-size: 16px; letter-spacing: 0.3px; color: var(--ink2); }
+.prep .say-ru { font-size: 14px; }
+.prep-end .cloud { justify-content: center; }
+.day-group, .day-open { display: flex; flex-direction: column; gap: 8px; }
 .cloud { display: flex; flex-wrap: wrap; gap: 6px; }
 .cloud span { padding: 4px 10px; border-radius: 10px; background: var(--teal-wash); color: var(--teal-ink); font-size: 12.5px; font-weight: 700; }
 .said-btn { flex-shrink: 0; min-height: 44px; padding: 0 12px; border-radius: 22px; border: 1.5px solid var(--line2); background: var(--card); color: var(--ink2); font-size: 12.5px; font-weight: 700; white-space: nowrap; cursor: pointer; }
 .said-btn.on { border-color: var(--teal); background: var(--teal-wash); color: var(--teal-ink); }
 .baby-tip { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; line-height: 1.45; color: var(--muted); }
 .baby-tip > svg { flex-shrink: 0; }
-.suggest { align-items: stretch; border: 2px solid var(--teal-line); background: var(--teal-wash); color: var(--ink); text-align: left; cursor: pointer; }
-.suggest-row { display: flex; align-items: center; gap: 10px; }
-.suggest-row > svg { flex-shrink: 0; color: var(--teal-ink); }
 .scen-group { display: flex; flex-direction: column; gap: 8px; }
 .scen-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .scen { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-height: 86px; padding: 12px; border-radius: 16px; border: 1.5px solid var(--line); background: var(--card); color: var(--ink); text-align: left; cursor: pointer; }
@@ -620,5 +626,5 @@ button.vplay { cursor: pointer; }
   }
   window.botaBoot = setTimeout(botaFail, 10000);
 </script>
-<script type="module" src="./app.js?v=410fe73" onerror="botaFail()"></script>
+<script type="module" src="./app.js?v=a2db0d0" onerror="botaFail()"></script>
 </body></html>

@@ -1,12 +1,12 @@
 // Бота — MVP: conversational Kazakh for Russian speakers.
 import { html, render, useState, useEffect, useRef, useMemo, useErrorBoundary } from 'https://cdn.jsdelivr.net/npm/htm@3.1.1/preact/standalone.module.js';
-import { KINDS, CITIES, JOBS, HOBBIES, CHOICES, PEOPLE, PHRASES, TOPICS, LEVELS, RULES, RESCUE, PHRASEBOOK, BABY, BABY_GROUPS, BABY_AGES, BABY_GOAL, FACTS, RACE_APART } from './content.js?v=410fe73';
-import * as fsrs from './fsrs.js?v=410fe73';
-import * as voice from './voice.js?v=410fe73';
-import * as mic from './mic.js?v=410fe73';
-import * as stats from './stats.js?v=410fe73';
-import { KZ_LETTERS, checkTyped, normType, plain } from './typing.js?v=410fe73';
-import { Icon, PlayGlyph, SpeakerGlyph, Sun, Logo, Bota, Avatar, Yurt, Photo, Shanyrak, Wave } from './art.js?v=410fe73';
+import { KINDS, CITIES, JOBS, HOBBIES, CHOICES, PEOPLE, PHRASES, TOPICS, LEVELS, RULES, RESCUE, PHRASEBOOK, BABY, BABY_GROUPS, BABY_AGES, BABY_GOAL, BABY_NOW, FACTS, RACE_APART } from './content.js?v=a2db0d0';
+import * as fsrs from './fsrs.js?v=a2db0d0';
+import * as voice from './voice.js?v=a2db0d0';
+import * as mic from './mic.js?v=a2db0d0';
+import * as stats from './stats.js?v=a2db0d0';
+import { KZ_LETTERS, checkTyped, normType, plain, syllables, fillSlot } from './typing.js?v=a2db0d0';
+import { Icon, PlayGlyph, SpeakerGlyph, Sun, Logo, Bota, Avatar, Yurt, Photo, Shanyrak, Wave } from './art.js?v=a2db0d0';
 
 // The version of the app: tools/site.mjs gives every module address ?v=<commit>.
 const VERSION = new URL(import.meta.url).searchParams.get('v') || 'dev';
@@ -38,7 +38,9 @@ function fresh() {
     done: {}, days: {}, mem: {}, rules: {}, vars: {},
     // How many memory reviews were finished on a day: each one counts as a lesson of the daily goal.
     reviews: {},
-    baby: { name: '', age: '', said: {} },
+    // «Малыш»: said — phrases the parent marked as said to the baby, by day («bath.0»); prep — rituals
+    // prepared in a minute, by day.
+    baby: { name: '', age: '', said: {}, prep: {} },
     // «Бәйге»: the best time of every race (a topic id, or mix), how often each word was mixed up,
     // and the name of the last rival in a duel on this phone.
     race: { best: {}, miss: {}, runs: 0, rival: '' },
@@ -90,7 +92,7 @@ function normalize(d) {
     profile: { ...base.profile, ...obj(d.profile) },
     done: obj(d.done), days: obj(d.days), rules: obj(d.rules), vars: obj(d.vars), reviews: counts(d.reviews),
     mem: Object.fromEntries(Object.entries(obj(d.mem)).filter(([, c]) => isObj(c) && Number.isFinite(c.due))),
-    baby: { ...base.baby, ...obj(d.baby), said: obj(obj(d.baby).said) },
+    baby: { ...base.baby, ...obj(d.baby), said: obj(obj(d.baby).said), prep: obj(obj(d.baby).prep) },
     race: {
       best: counts(race.best), miss: counts(race.miss), runs: Number.isFinite(race.runs) ? race.runs : 0,
       rival: typeof race.rival === 'string' ? race.rival.slice(0, 24) : '',
@@ -136,6 +138,7 @@ function mergeProgress(here, there) {
   if (!out.profile.onboarded && there.profile.onboarded) out.profile = { ...there.profile };
   if (!out.baby.name && there.baby.name) Object.assign(out.baby, { name: there.baby.name, age: there.baby.age });
   Object.entries(there.baby.said).forEach(([day, said]) => { out.baby.said[day] = { ...(isObj(said) ? said : {}), ...(out.baby.said[day] || {}) }; });
+  Object.entries(there.baby.prep).forEach(([day, prep]) => { out.baby.prep[day] = { ...(isObj(prep) ? prep : {}), ...(out.baby.prep[day] || {}) }; });
   Object.entries(there.race.best).forEach(([k, ms]) => { if (!out.race.best[k] || ms < out.race.best[k]) out.race.best[k] = ms; });
   Object.entries(there.race.miss).forEach(([k, n]) => { out.race.miss[k] = Math.max(out.race.miss[k] || 0, n); });
   out.race.runs = Math.max(out.race.runs, there.race.runs);
@@ -213,7 +216,7 @@ const INSTALL_STEPS = {
 
 // Offered on the site, outside the installed app, once the learner has done something worth keeping.
 const installDue = (st) => SITE_BUILD && !standalone() && st.seen.install !== 'never'
-  && (Object.keys(st.done).length > 0 || Object.keys(st.baby.said || {}).length > 0);
+  && (Object.keys(st.done).length > 0 || Object.keys(st.baby.said || {}).length > 0 || Object.keys(st.baby.prep || {}).length > 0);
 
 function InstallRow({ st, onOpen }) {
   const [, redraw] = useState(0);
@@ -604,9 +607,18 @@ const val = (x, v) => (typeof x === 'function' ? x(v) : x == null ? '' : fill(x,
 const WORDS = new Map(TOPICS.flatMap((t) => (t.words || []).map(([kk, ru]) => [kk, { kk, ru }])));
 const wordId = (kk) => `w:${kk}`;
 const isWord = (id) => id.startsWith('w:');
+// Phrases of «Малыш» join the memory after a minute of preparation, as cards «b:<ritual>.<index>».
+const babyId = (rid, i) => `b:${rid}.${i}`;
+const isBaby = (id) => id.startsWith('b:');
 
 function phrase(id) {
   if (isWord(id)) return WORDS.get(id.slice(2)) || null;
+  if (isBaby(id)) {
+    const [rid, i] = id.slice(2).split('.');
+    const r = BABY.find((x) => x.id === rid);
+    const it = r && r.items[Number(i)];
+    return it ? { kk: it[0], ru: it[1] } : null;
+  }
   if (PHRASES[id]) return PHRASES[id];
   const rescue = RESCUE.find((x) => x.id === id);
   if (rescue) return rescue;
@@ -2027,8 +2039,11 @@ const GRADES = [[1, 'Не вспомнил(а)'], [2, 'С трудом'], [3, '�
 // Recall, then check yourself: the meaning comes first, the learner says the phrase (aloud or to
 // themselves), opens the answer and rates how it went. Picking one of three options would only
 // test recognition, and a few lucky guesses sent a phrase away for months.
-function Review({ st, update, go }) {
-  const [queue] = useState(() => dueList(st).slice(0, 10));
+// only: 'baby' — the phrases of «Малыш» alone, from its screen; back: the screen to go back to.
+function Review({ st, update, go, only, back }) {
+  const [queue] = useState(() => dueList(st).filter((id) => only !== 'baby' || isBaby(id)).slice(0, 10));
+  const home = back || 'home';
+  const forBaby = home === 'baby';
   const [i, setI] = useState(0);
   const [open, setOpen] = useState(false);
   const [okCount, setOkCount] = useState(0);
@@ -2047,7 +2062,8 @@ function Review({ st, update, go }) {
     const first = bottom.current && bottom.current.querySelector('button');
     if (first) first.focus({ preventScroll: true });
   }, [i, open]);
-  const head = html`<${TopBar} title="Освежить память" sub=${queue.length && i < queue.length ? `${i + 1} из ${queue.length}` : 'орнамент памяти'} onBack=${() => go('home')} backLabel="Вернуться в «Мой круг»" />`;
+  const head = html`<${TopBar} title="Освежить память" sub=${queue.length && i < queue.length ? `${i + 1} из ${queue.length}` : 'орнамент памяти'}
+    onBack=${() => go(home)} backLabel=${forBaby ? 'Назад к малышу' : 'Вернуться в «Мой круг»'} />`;
 
   if (!queue.length || i >= queue.length) {
     const nd = nextDue(st);
@@ -2065,24 +2081,25 @@ function Review({ st, update, go }) {
           <${Tomorrow} st=${st} />
           <${RemindRow} st=${st} update=${update} />
         </div>
-        <div class="bottom pad"><button type="button" class="btn btn-primary btn-block" onClick=${() => go('home')}>Готово на сегодня</button>
-          ${nx ? links([['Ещё урок', toNext]]) : null}</div>
+        <div class="bottom pad"><button type="button" class="btn btn-primary btn-block" onClick=${() => go(home)}>Готово на сегодня</button>
+          ${nx && !forBaby ? links([['Ещё урок', toNext]]) : null}</div>
       </main>`;
     }
     // After the memory, the next lesson: the day began with the review, the lesson goes on from it.
-    const onward = queue.length && nx;
+    const onward = !forBaby && queue.length && nx;
     return html`<main class="screen">${head}
       <div class="scroll pad review-end">
         <span class="orn-big"><${Icon} name="ornament" size=${56} stroke=${1.6} /></span>
         <b class="h2">${queue.length ? `Освежили ${cardsText(queue, true)}` : 'Всё свежее'}</b>
         ${queue.length ? html`<span class="muted">Вспомнил(а): ${okCount} из ${queue.length}</span>` : null}
-        ${nd ? html`<span class="muted">Следующее повторение — ${whenText(nd)}</span>` : html`<span class="muted">Пройди разговор — и фразы попадут в память.</span>`}
+        ${nd ? html`<span class="muted">Следующее повторение — ${whenText(nd)}</span>`
+          : html`<span class="muted">${forBaby ? 'Подготовьтесь к ритуалу — и его фразы попадут в память.' : 'Пройди разговор — и фразы попадут в память.'}</span>`}
         ${onward ? html`<span class="muted sm">Дальше: ${lc(nextTitle(nx))}</span>` : null}
       </div>
       <div class="bottom pad">${onward
         ? html`<button type="button" class="btn btn-primary btn-block" onClick=${toNext}>${isSkill(nx.c) ? 'Начать урок' : 'Продолжить разговор'}</button>
           ${links([['В «Мой круг»', () => go('home')]])}`
-        : html`<button type="button" class="btn btn-primary btn-block" onClick=${() => go('home')}>Вернуться в «Мой круг»</button>`}</div>
+        : html`<button type="button" class="btn btn-primary btn-block" onClick=${() => go(home)}>${forBaby ? 'Готово' : 'Вернуться в «Мой круг»'}</button>`}</div>
     </main>`;
   }
 
@@ -2123,7 +2140,7 @@ function Review({ st, update, go }) {
   return html`<main class="screen">${head}
     <div class="scroll pad review">
       <div class="rev-card">
-        <span class="eyebrow">${isWord(id) ? 'КАК ЭТО ПО-КАЗАХСКИ?' : 'КАК СКАЗАТЬ ПО-КАЗАХСКИ?'}</span>
+        <span class="eyebrow">${isWord(id) ? 'КАК ЭТО ПО-КАЗАХСКИ?' : isBaby(id) ? 'КАК СКАЗАТЬ МАЛЫШУ?' : 'КАК СКАЗАТЬ ПО-КАЗАХСКИ?'}</span>
         <b class="rev-ru">${fill(ph.ru, v)}</b>
         ${open ? html`<span class="rev-kk"><b lang="kk">${right}</b><${SpeakBtn} text=${right} /></span>` : null}
       </div>
@@ -2656,42 +2673,126 @@ function Phrasebook({ st, update, go }) {
 
 /* ---------- 07 · «Малыш» ---------- */
 
+// The parent learns, the baby hears a living voice. The main screen offers one ritual for now and a
+// minute to prepare for it: hear each phrase and say it after Bota, say it from memory, then put the
+// phone away. What was said is marked in the evening, on one screen; prepared phrases join the memory.
 const AGE_RANK = { '0-1': 0, '1-2': 1, '2-3': 2 };
 const FROM_LABEL = { '1-2': 'с 1 года', '2-3': 'с 2 лет' };
+const RITUAL_W = ['ритуал', 'ритуала', 'ритуалов'];
+const SONG_W = ['песенка', 'песенки', 'песенок'];
+const ageOk = (st, s) => AGE_RANK[s.from] <= (AGE_RANK[st.baby.age] ?? 1);
+const isSong = (s) => s.group === 'songs';
+const ritualOf = (id) => BABY.find((x) => x.id === id) || BABY[0];
+const knownOf = (st, s) => s.items.filter((_, i) => st.mem[babyId(s.id, i)]).length;
 
-// The ritual that fits the time of day and the baby's age and has not been said yet today.
-function suggestRitual(said, age, now = new Date()) {
+// The part of the day that «Сейчас подходит» looks at.
+function partOfDay(now = new Date()) {
   const h = now.getHours();
-  const today = said[dayKey(now)] || {};
-  const timed = h >= 5 && h < 11 ? BABY.filter((s) => s.group === 'morning')
-    : h >= 11 && h < 17 ? BABY.filter((s) => s.group === 'day')
-    : h >= 17 && h < 21 ? BABY.filter((s) => s.group === 'evening' && s.id !== 'night')
-    : BABY.filter((s) => s.id === 'sleep' || s.id === 'night');
-  const rank = AGE_RANK[age] ?? 1;
-  const fits = timed.filter((s) => AGE_RANK[s.from] <= rank);
-  const pool = fits.length ? fits : timed;
-  return pool.find((s) => !s.items.some((_, i) => today[`${s.id}.${i}`])) || pool[0];
+  return h >= 5 && h < 11 ? 'morning' : h >= 11 && h < 17 ? 'day' : h >= 17 && h < 21 ? 'evening' : 'night';
 }
 
+// The ritual that fits the time of day and the baby's age and has been neither prepared nor said today.
+function suggestRitual(st, now = new Date()) {
+  const day = dayKey(now);
+  const said = (st.baby.said || {})[day] || {};
+  const prep = (st.baby.prep || {})[day] || {};
+  const timed = BABY_NOW[partOfDay(now)].map((id) => BABY.find((s) => s.id === id)).filter(Boolean);
+  const fits = timed.filter((s) => ageOk(st, s));
+  const pool = fits.length ? fits : timed;
+  return pool.find((s) => !prep[s.id] && !s.items.some((_, i) => said[`${s.id}.${i}`])) || pool[0];
+}
+
+// Marked in the evening: a phrase said to the baby today. A phrase not yet in the memory joins it.
 function toggleSaid(update, pid) {
   const today = dayKey();
   update((d) => {
     d.baby.said = d.baby.said || {};
     const day = { ...(d.baby.said[today] || {}) };
-    if (day[pid]) delete day[pid]; else day[pid] = true;
+    if (day[pid]) delete day[pid];
+    else {
+      day[pid] = true;
+      if (!d.mem[`b:${pid}`]) d.mem[`b:${pid}`] = fsrs.review(null, 2);
+    }
     d.baby.said[today] = day;
     if (Object.keys(day).length) d.days[today] = true;
   });
+}
+
+// «Замени слово»: a phrase of the ritual with a place for a word — «Міне, шұлығың!» — and the words
+// that fit there.
+const swapKk = (swap, w) => fillSlot(swap.kk, w[0]).join('');
+const swapRu = (swap, w) => w[2] || fillSlot(swap.ru, w[1]).join('');
+
+function SwapCard({ swap, sound }) {
+  const [k, setK] = useState(0);
+  const w = swap.words[k] || swap.words[0];
+  const [a, mid, b] = fillSlot(swap.kk, w[0]);
+  const pick = (i) => {
+    setK(i);
+    const text = swapKk(swap, swap.words[i]);
+    if (sound && voice.canSay(text)) voice.speak(text);
+  };
+  return html`<section class="card swap">
+    <span class="eyebrow">ЗАМЕНИ СЛОВО</span>
+    <span class="swap-line"><b class="kk" lang="kk" aria-live="polite">${a}<span class="slot">${mid}</span>${b}</b><${SpeakBtn} text=${a + mid + b} /></span>
+    <span class="muted sm">${swapRu(swap, w)}</span>
+    <div class="age-chips" role="group" aria-label="Слова на замену">${swap.words.map((x, i) => html`
+      <button type="button" class=${'chip-btn' + (i === k ? ' sel' : '')} aria-pressed=${i === k} lang="kk" onClick=${() => pick(i)}>${x[0]}</button>`)}</div>
+  </section>`;
+}
+
+const prepLabel = (st, s) => (knownOf(st, s) === s.items.length ? 'Освежить за полминуты' : 'Подготовиться за минуту');
+
+// «Сейчас подходит»: the ritual of this time of day — Bota says its first phrase — and one action,
+// a minute of preparation.
+function BabyNow({ st, go, s }) {
+  const [kk, ru] = s.items[0];
+  const n = s.items.length;
+  return html`<section class="card baby-now">
+    <span class="eyebrow">СЕЙЧАС ПОДХОДИТ</span>
+    <span class="now-title"><b class="h3">${s.title}</b><span class="muted sm"><span lang="kk">${s.kk}</span> · ${n} ${plural(n, isSong(s) ? ['строчка', 'строчки', 'строчек'] : PHR_W)}</span></span>
+    <div class="m-row left now-say"><${Bota} size=${56} /><div class="b b-bota"><b class="kk" lang="kk">${kk}</b><span class="muted sm">${ru}</span></div></div>
+    <button type="button" class="btn btn-primary btn-block" onClick=${() => go('babyPrep', { id: s.id, back: 'baby' })}>
+      <${Icon} name="ear" size=${20} /> ${prepLabel(st, s)}</button>
+    <span class="done-links"><button type="button" class="link-btn" onClick=${() => go('babyScen', { id: s.id })}>${isSong(s) ? 'Все строчки' : 'Фразы и слова на замену'}</button></span>
+  </section>`;
+}
+
+// What the baby heard this week; in the evening — today's marks, on one screen.
+function BabyWeek({ st, go }) {
+  const said = st.baby.said || {};
+  const saidToday = Object.keys(said[dayKey()] || {}).length;
+  const week = weekKeys().reduce((n, k) => n + Object.keys(said[k] || {}).length, 0);
+  const started = week > 0 || Object.keys(st.baby.prep || {}).length > 0 || Object.keys(st.mem).some(isBaby);
+  if (!started) return null;
+  if (['evening', 'night'].includes(partOfDay()) && !saidToday) {
+    return html`<button type="button" class="m-rule race-open" onClick=${() => go('babyDay')}>
+      <${Icon} name="check" size=${18} stroke=${2.4} /> Вечер: отметьте, что прозвучало сегодня</button>`;
+  }
+  return html`<button type="button" class="mem-row" onClick=${() => go('babyDay')}>
+    <span class="mem-ic"><${Sun} size=${20} /></span>
+    <span class="grow">На этой неделе — ${week} из ${BABY_GOAL} фраз малышу</span>
+    <span class="link">Отметить</span>
+    <${Icon} name="next" size=${18} stroke=${2.4} />
+  </button>`;
+}
+
+// Phrases of «Малыш» that fade: a review of them alone.
+function BabyMem({ st, go }) {
+  const due = dueList(st).filter(isBaby);
+  if (!due.length) return null;
+  return html`<button type="button" class="mem-row" onClick=${() => go('review', { only: 'baby', back: 'baby' })}>
+    <span class="mem-ic"><${Icon} name="ornament" size=${22} /></span>
+    <span class="grow">Память: ${cardsText(due)} малышу ${agree(due, 'тускнеет', 'тускнеют')}</span>
+    <span class="link">Освежить</span>
+    <${Icon} name="next" size=${18} stroke=${2.4} />
+  </button>`;
 }
 
 function Baby({ st, update, go }) {
   const [name, setName] = useState('');
   const [age, setAge] = useState('1-2');
   const [install, installSheet] = useInstall(update);
-  const today = dayKey();
-  const week = weekKeys();
-  const said = st.baby.said || {};
-  const weekCount = week.reduce((n, k) => n + Object.keys(said[k] || {}).length, 0);
 
   if (!st.baby.name) {
     const clean = cap(name.trim().replace(/\s+/g, ' ').slice(0, 24));
@@ -2700,7 +2801,7 @@ function Baby({ st, update, go }) {
         <div class="msgs">
           <h1 class="h1 baby-title">Малыш</h1>
           <${BotaSays}>Этот раздел — для родителя. Малышу экран не нужен: ему нужна ваша живая речь.<//>
-          <${BotaSays}>Я подскажу фразы для купания, еды, прогулки и сна. Как зовут малыша?<//>
+          <${BotaSays}>Перед купанием, едой, прогулкой или сном я за минуту подготовлю вас к нужным фразам. Как зовут малыша?<//>
         </div>
       </div>
       <form class="composer pad" onSubmit=${(e) => { e.preventDefault(); if (clean) update((d) => { d.baby.name = clean; d.baby.age = age; }); }}>
@@ -2717,77 +2818,243 @@ function Baby({ st, update, go }) {
   }
 
   const ageLabel = (BABY_AGES.find((a) => a[0] === st.baby.age) || BABY_AGES[1])[1];
-  const ageRank = AGE_RANK[st.baby.age] ?? 1;
-  const todaySaid = said[today] || {};
-  const sug = suggestRitual(said, st.baby.age);
-  const words = week.flatMap((k) => Object.keys(said[k] || {}))
-    .map((pid) => { const [sid, idx] = pid.split('.'); const sc = BABY.find((x) => x.id === sid); return sc && sc.items[Number(idx)] ? sc.items[Number(idx)][0] : null; })
-    .filter(Boolean);
-  const cloud = [...new Set(words)].slice(-8);
-  const pct = Math.min(100, Math.round((weekCount / BABY_GOAL) * 100));
+  const songs = BABY.filter(isSong).length;
+  const rituals = BABY.length - songs;
   return html`<main class="screen">
     <div class="scroll pad baby">
-      <header class="baby-head"><span><h1 class="h1">${st.baby.name}</h1><span class="muted sm">${ageLabel} · ${BABY.length} ритуалов на каждый день</span></span></header>
-      <section class="card baby-hero">
-        <span class="eyebrow">НА ЭТОЙ НЕДЕЛЕ</span>
-        <div class="big"><b>${weekCount}</b><span>${plural(weekCount, TIME_W)} вы сказали малышу фразу по-казахски</span></div>
-        <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax=${BABY_GOAL} aria-valuenow=${weekCount}><span style=${`width:${pct}%`}></span></div>
-        <span class="muted sm">цель недели — ${BABY_GOAL}</span>
-        ${cloud.length ? html`<div class="cloud">${cloud.map((w) => html`<span class="kk" lang="kk">${w}</span>`)}</div>` : null}
-      </section>
-      <button type="button" class="card suggest" onClick=${() => go('babyScen', { id: sug.id })}>
-        <span class="eyebrow">СЕЙЧАС ПОДХОДИТ</span>
-        <span class="suggest-row"><span class="grow"><b class="h3">${sug.title}</b><span class="muted sm"><span lang="kk">«${sug.items[0][0]}»</span> — ${lc(sug.items[0][1])}</span></span>
-          <${Icon} name="next" size=${22} stroke=${2.4} /></span>
+      <header class="baby-head"><span><h1 class="h1">${st.baby.name}</h1><span class="muted sm">${ageLabel}</span></span></header>
+      <${BabyNow} st=${st} go=${go} s=${suggestRitual(st)} />
+      <${BabyWeek} st=${st} go=${go} />
+      <${BabyMem} st=${st} go=${go} />
+      <button type="button" class="rules-link" onClick=${() => go('babyAll')}>
+        <span class="rl-ic"><${Icon} name="heart" size=${20} /></span>
+        <span class="grow"><b>Все ритуалы и песенки</b><span class="muted sm">${rituals} ${plural(rituals, RITUAL_W)} на каждый день и ${songs} ${plural(songs, SONG_W)}</span></span>
+        <${Icon} name="next" size=${20} stroke=${2.2} />
       </button>
-      ${BABY_GROUPS.map((g) => html`<section class="scen-group" key=${g.id}>
-        <span class="eyebrow">${g.title.toUpperCase()} · ${g.kk.toUpperCase()}</span>
-        <div class="scen-grid">${BABY.filter((s) => s.group === g.id).map((s) => {
-          const early = AGE_RANK[s.from] > ageRank;
-          const n = s.items.filter((_, i) => todaySaid[`${s.id}.${i}`]).length;
-          return html`<button type="button" class="scen" key=${s.id} onClick=${() => go('babyScen', { id: s.id })}
-            aria-label=${`${s.title}: сегодня ${n} из ${s.items.length}`}>
-            <b>${s.title}</b><span class="muted sm" lang="kk">${s.kk}</span>
-            <span class="scen-foot">${early ? html`<span class="age">${FROM_LABEL[s.from]}</span>`
-              : html`<span class="pips" aria-hidden="true">${s.items.map((_, i) => html`<i class=${todaySaid[`${s.id}.${i}`] ? 'on' : ''}></i>`)}</span>`}</span>
-          </button>`;
-        })}</div>
-      </section>`)}
       ${st.profile.mode === 'baby' ? html`<${SurveyRow} st=${st} update=${update} /><${StatsRow} st=${st} update=${update} />` : null}
       <${InstallRow} st=${st} onOpen=${install} />
-      <p class="baby-tip"><${Bota} size=${26} /><span>Говорите сами, своим голосом: малыш учится у живого человека, а не у экрана.</span></p>
+      <p class="baby-tip"><${Bota} size=${26} /><span>Подготовьтесь за минуту и уберите телефон: малыш учится у живого голоса, а не у экрана.</span></p>
     </div>
     <${TabBar} tab=${st.profile.mode === 'baby' ? 'baby' : 'phrasebook'} go=${go} st=${st} />
     ${installSheet}
   </main>`;
 }
 
-function BabyScenario({ st, update, go, id }) {
-  const s = BABY.find((x) => x.id === id) || BABY[0];
-  // The next ritual in the list that fits the baby's age.
-  const idx = BABY.indexOf(s);
-  const rank = AGE_RANK[st.baby.age] ?? 1;
-  const next = [...BABY.slice(idx + 1), ...BABY.slice(0, idx)].find((x) => AGE_RANK[x.from] <= rank) || BABY[(idx + 1) % BABY.length];
-  const todaySaid = (st.baby.said || {})[dayKey()] || {};
-  const n = s.items.filter((_, i) => todaySaid[`${s.id}.${i}`]).length;
+// All rituals and songs, by the time of day and by theme.
+function BabyAll({ st, go }) {
+  const today = (st.baby.said || {})[dayKey()] || {};
+  const songs = BABY.filter(isSong).length;
+  const rituals = BABY.length - songs;
   return html`<main class="screen">
-    <${TopBar} title=${s.title} sub=${`${s.kk} · сегодня ${n} из ${s.items.length}`} onBack=${() => go('baby')} backLabel="Назад к ритуалам" />
+    <${TopBar} title="Ритуалы и песенки" sub=${`${rituals} ${plural(rituals, RITUAL_W)} и ${songs} ${plural(songs, SONG_W)}`} onBack=${() => go('baby')} backLabel="Назад к малышу" />
+    <div class="scroll pad baby">
+      ${BABY_GROUPS.map((g) => html`<section class="scen-group" key=${g.id}>
+        <span class="eyebrow">${g.title.toUpperCase()} · <span lang="kk">${g.kk.toUpperCase()}</span></span>
+        <div class="scen-grid">${BABY.filter((s) => s.group === g.id).map((s) => {
+          const n = s.items.filter((_, i) => today[`${s.id}.${i}`]).length;
+          return html`<button type="button" class="scen" key=${s.id} onClick=${() => go('babyScen', { id: s.id, back: 'babyAll' })}
+            aria-label=${`${s.title}: сегодня ${n} из ${s.items.length}`}>
+            <b>${s.title}</b><span class="muted sm" lang="kk">${s.kk}</span>
+            <span class="scen-foot">${!ageOk(st, s) ? html`<span class="age">${FROM_LABEL[s.from]}</span>`
+              : html`<span class="pips" aria-hidden="true">${s.items.map((_, i) => html`<i class=${today[`${s.id}.${i}`] ? 'on' : ''}></i>`)}</span>`}</span>
+          </button>`;
+        })}</div>
+      </section>`)}
+    </div>
+  </main>`;
+}
+
+// A ritual: its phrases with the sound, words to put into one of them, and the minute of preparation.
+function BabyScenario({ st, go, id, back }) {
+  const s = ritualOf(id);
+  const idx = BABY.indexOf(s);
+  // The next ritual in the list that fits the baby's age.
+  const next = [...BABY.slice(idx + 1), ...BABY.slice(0, idx)].find((x) => ageOk(st, x)) || BABY[(idx + 1) % BABY.length];
+  const swaps = s.swap ? s.swap.words.map((w) => swapKk(s.swap, w)) : [];
+  return html`<main class="screen">
+    <${TopBar} title=${s.title} sub=${s.kk} subLang="kk" onBack=${() => go(back || 'baby')} backLabel=${back === 'babyAll' ? 'Ко всем ритуалам' : 'Назад к малышу'} />
     <div class="scroll pad baby">
       <div class="m-tip static"><${Bota} size=${28} /><span>${s.tip}</span></div>
-      <div class="ph-list">${s.items.map(([kk, ru], i) => {
-        const pid = `${s.id}.${i}`;
-        const on = !!todaySaid[pid];
-        return html`<div class="ph-row" key=${pid}>
-          <${SpeakBtn} text=${kk} />
-          <span class="grow"><b class="kk" lang="kk">${kk}</b><span class="muted sm">${ru}</span></span>
-          <button type="button" class=${'said-btn' + (on ? ' on' : '')} aria-pressed=${on}
-            onClick=${() => { toggleSaid(update, pid); if (!on) stats.track('baby_said', { r: s.id }); }}>${on ? 'Сказал(а) ✓' : 'Сказал(а)'}</button>
-        </div>`;
-      })}</div>
-      <p class="muted sm">Отмечайте фразу, когда сказали её малышу: так видно, сколько казахского он слышит за неделю.</p>
-      <${ReportLink} phrases=${s.items.map(([kk]) => kk)} where=${`baby:${s.id}`} />
+      <div class="ph-list">${s.items.map(([kk, ru], i) => html`<div class="ph-row" key=${i}>
+        <${SpeakBtn} text=${kk} />
+        <span class="grow"><b class="kk" lang="kk">${kk}</b><span class="muted sm">${ru}</span></span>
+        ${st.mem[babyId(s.id, i)] ? html`<span class="mem-mark" role="img" aria-label="В памяти" title="В памяти"><${Icon} name="ornament" size=${18} /></span>` : null}
+      </div>`)}</div>
+      ${s.swap ? html`<${SwapCard} key=${s.id} swap=${s.swap} sound=${st.settings.voice} />` : null}
+      <${ReportLink} phrases=${[...s.items.map(([kk]) => kk), ...swaps.filter((x) => !s.items.some(([kk]) => kk === x))]} where=${`baby:${s.id}`} />
     </div>
-    <div class="bottom pad"><button type="button" class="btn btn-primary btn-block" onClick=${() => go('babyScen', { id: next.id })}>Следующий ритуал: ${next.title.toLowerCase()}</button></div>
+    <div class="bottom pad">
+      <button type="button" class="btn btn-primary btn-block" onClick=${() => go('babyPrep', { id: s.id, back: 'babyScen', from: back })}>
+        <${Icon} name="ear" size=${20} /> ${prepLabel(st, s)}</button>
+      <span class="done-links"><button type="button" class="link-btn" onClick=${() => go('babyScen', { id: next.id, back })}>Следующий: ${next.title.toLowerCase()}</button></span>
+    </div>
+  </main>`;
+}
+
+// «Подготовься за минуту»: before the bath or the walk the parent hears each new phrase of the ritual
+// and says it after Bota, in syllables if need be; then says every phrase from memory and checks
+// themself — and puts the phone away. Phrases the memory holds already are only recalled. A phrase
+// not recalled comes once more at the end; its first try rates the card.
+function BabyPrep({ st, update, go, id, back, from }) {
+  const s = ritualOf(id);
+  const [plan, setPlan] = useState(() => {
+    const unknown = s.items.map((_, i) => i).filter((i) => !st.mem[babyId(s.id, i)]);
+    return [...unknown.map((i) => ({ k: 'hear', i })), ...s.items.map((_, i) => ({ k: 'recall', i }))];
+  });
+  const [at, setAt] = useState(0);
+  const [open, setOpen] = useState(false);
+  // How many phrases were new to the memory: they were heard first.
+  const learned = useRef(plan.filter((p) => p.k === 'hear').length);
+  const score = useRef({ ok: 0, miss: 0 });
+  const ended = useRef(false);
+  const lastTap = useRef(0);
+  const bottom = useRef(null);
+  const step = plan[at];
+  const [kk, ru] = step ? s.items[step.i] : ['', ''];
+  const sound = st.settings.voice && voice.canSay(kk);
+  const leave = () => (back === 'babyScen' ? go('babyScen', { id: s.id, back: from }) : go('baby'));
+  // A new phrase sounds as it comes up; keyboard users stay on the buttons of the moment.
+  useEffect(() => {
+    if (step && step.k === 'hear' && sound) voice.speak(kk);
+    if (at === 0 && !open) return;
+    const first = bottom.current && bottom.current.querySelector('button');
+    if (first) first.focus({ preventScroll: true });
+  }, [at, open]);
+  // The end: the ritual is prepared today, and the day counts as a day of practice.
+  useEffect(() => {
+    if (step || ended.current) return;
+    ended.current = true;
+    const today = dayKey();
+    update((d) => {
+      d.baby.prep = d.baby.prep || {};
+      d.baby.prep[today] = { ...(d.baby.prep[today] || {}), [s.id]: true };
+      d.days[today] = true;
+    });
+    stats.track('baby_prep', { r: s.id, n: s.items.length, fresh: learned.current, ok: score.current.ok });
+  }, [step]);
+  // A second tap on the same spot must not answer the next step as well.
+  const tapped = () => {
+    if (Date.now() - lastTap.current < 350) return false;
+    lastTap.current = Date.now();
+    return true;
+  };
+  const next = () => {
+    voice.stop();
+    setOpen(false);
+    setAt((n) => n + 1);
+  };
+  const reveal = () => {
+    setOpen(true);
+    if (sound) voice.speak(kk);
+  };
+  const rate = (good) => {
+    if (!tapped()) return;
+    if (!step.again) {
+      const pid = babyId(s.id, step.i);
+      update((d) => { d.mem[pid] = fsrs.review(d.mem[pid], good ? 3 : 1); });
+      score.current[good ? 'ok' : 'miss'] += 1;
+      if (!good) setPlan((p) => [...p, { k: 'recall', i: step.i, again: true }]);
+    }
+    next();
+  };
+  const head = html`<${TopBar} title="Подготовка" sub=${step ? `${s.title} · ${at + 1} из ${plan.length}` : s.title} onBack=${leave} backLabel="Выйти из подготовки" />`;
+
+  if (!step) {
+    const cards = s.items.map((_, i) => st.mem[babyId(s.id, i)]).filter(Boolean);
+    const soon = cards.length ? Math.min(...cards.map((c) => c.due)) : null;
+    const note = learned.current
+      ? `${learned.current} ${plural(learned.current, PHR_W)} — в памяти${soon ? `, освежим ${whenText(soon)}` : ''}`
+      : `Вспомнили ${score.current.ok} из ${s.items.length}${soon ? ` · освежим ${whenText(soon)}` : ''}`;
+    return html`<main class="screen">${head}
+      <div class="scroll pad review-end prep-end">
+        <${Bota} size=${64} />
+        <b class="h2">Готово! Теперь уберите телефон</b>
+        <span class="muted">и скажите эти фразы малышу сами, своим голосом. Вечером отметьте, что прозвучало.</span>
+        <div class="cloud">${s.items.map(([x], i) => html`<span class="kk" lang="kk" key=${i}>${x}</span>`)}</div>
+        <span class="mem-note"><${Icon} name="ornament" size=${20} />${note}</span>
+        <${RemindRow} st=${st} update=${update} />
+      </div>
+      <div class="bottom pad"><button type="button" class="btn btn-primary btn-block" onClick=${() => go('baby')}>Готово</button>
+        <span class="done-links"><button type="button" class="link-btn" onClick=${() => go('babyPrep', { id: s.id, back, from, k: Date.now() })}>Ещё раз</button></span></div>
+    </main>`;
+  }
+
+  if (step.k === 'hear') {
+    return html`<main class="screen">${head}
+      <div class="scroll pad prep">
+        <div class="say-head"><span class="eyebrow">ПОСЛУШАЙТЕ И ПОВТОРИТЕ</span><span class="muted sm">${sound ? 'вслух, за Ботой' : 'вслух, по слогам'}</span></div>
+        <div class="say-card">
+          <span class="say-kk" lang="kk">${kk}</span>
+          <span class="say-syl" lang="kk">${syllables(kk)}</span>
+          <span class="say-ru">«${ru}»</span>
+          ${voice.canSay(kk) ? html`<div class="say-ctl">
+              <button type="button" class="ctl" onClick=${() => voice.speak(kk)}><${SpeakerGlyph} size=${16} /> Послушать</button>
+              <button type="button" class="ctl" onClick=${() => voice.slow(kk)}>Медленно</button></div>`
+            : html`<span class="muted sm">Здесь нет казахского голоса — прочитайте по слогам.</span>`}
+        </div>
+      </div>
+      <div class="bottom pad" ref=${bottom}><button type="button" class="btn btn-primary btn-block" onClick=${() => { if (tapped()) next(); }}>Повторил(а) вслух</button></div>
+    </main>`;
+  }
+
+  return html`<main class="screen">${head}
+    <div class="scroll pad prep">
+      <div class="say-head"><span class="eyebrow">ПО ПАМЯТИ</span><span class="muted sm">${step.again ? 'ещё раз' : 'не глядя на текст'}</span></div>
+      <div class="rev-card">
+        <b class="rev-ru">${ru}</b>
+        ${open ? html`<span class="rev-kk"><b lang="kk">${kk}</b><${SpeakBtn} text=${kk} /></span>` : null}
+      </div>
+      <p class="muted sm center" role="status">${open ? 'Получилось вспомнить?' : 'Скажите это по-казахски вслух — потом проверьте себя.'}</p>
+    </div>
+    <div class="bottom pad" ref=${bottom}>${open
+      ? html`<div class="grades" role="group" aria-label="Получилось ли вспомнить">
+          <button type="button" class="grade" onClick=${() => rate(false)}><b>Не вспомнил(а)</b>${step.again ? null : html`<span class="muted sm">повторим в конце</span>`}</button>
+          <button type="button" class="grade" onClick=${() => rate(true)}><b>Вспомнил(а)</b></button></div>`
+      : html`<button type="button" class="btn btn-primary btn-block" onClick=${reveal}>Показать ответ</button>`}</div>
+  </main>`;
+}
+
+// The evening: one screen to mark what was said to the baby today, one tap a phrase. Rituals prepared
+// or marked today are open; others the memory holds stay folded until tapped.
+function BabyDay({ st, update, go }) {
+  const today = dayKey();
+  const said = (st.baby.said || {})[today] || {};
+  const prep = (st.baby.prep || {})[today] || {};
+  const touched = (s) => prep[s.id] || s.items.some((_, i) => said[`${s.id}.${i}`]);
+  // While phrases are marked the order stays as it was when the screen opened.
+  const [first] = useState(() => BABY.filter(touched).map((s) => s.id));
+  const [opened, setOpened] = useState({});
+  const todays = BABY.filter((s) => first.includes(s.id));
+  const others = BABY.filter((s) => !first.includes(s.id) && s.items.some((_, i) => st.mem[babyId(s.id, i)] || said[`${s.id}.${i}`]));
+  const n = Object.keys(said).length;
+  const week = weekKeys().reduce((m, k) => m + Object.keys((st.baby.said || {})[k] || {}).length, 0);
+  const rows = (s) => html`<div class="ph-list">${s.items.map(([kk, ru], i) => {
+    const pid = `${s.id}.${i}`;
+    const on = !!said[pid];
+    return html`<div class="ph-row" key=${pid}>
+      <span class="grow"><b class="kk" lang="kk">${kk}</b><span class="muted sm">${ru}</span></span>
+      <button type="button" class=${'said-btn' + (on ? ' on' : '')} aria-pressed=${on}
+        onClick=${() => { toggleSaid(update, pid); if (!on) stats.track('baby_said', { r: s.id }); }}>${on ? 'Сказал(а) ✓' : 'Сказал(а)'}</button>
+    </div>`;
+  })}</div>`;
+  const any = todays.length > 0 || others.length > 0;
+  const sug = suggestRitual(st);
+  return html`<main class="screen">
+    <${TopBar} title="Итог дня" sub=${`сегодня ${n} ${plural(n, PHR_W)} · за неделю ${week} из ${BABY_GOAL}`} onBack=${() => go('baby')} backLabel="Назад к малышу" />
+    <div class="scroll pad baby">
+      <p class="sm">${any ? 'Отметьте, что прозвучало сегодня: одно касание — одна фраза.' : 'Сегодня вы ещё не готовились. Минута с Ботой — и вечером будет что отметить.'}</p>
+      ${todays.map((s) => html`<section class="day-group" key=${s.id}><span class="eyebrow">${s.title.toUpperCase()}</span>${rows(s)}</section>`)}
+      ${others.length ? html`<section class="day-group"><span class="eyebrow">${todays.length ? 'ЕЩЁ ИЗ ПАМЯТИ' : 'ИЗ ПАМЯТИ'}</span>
+        ${others.map((s) => (opened[s.id]
+          ? html`<div class="day-open" key=${s.id}><b class="sm">${s.title}</b>${rows(s)}</div>`
+          : html`<button type="button" class="mem-row" key=${s.id} aria-expanded="false" onClick=${() => setOpened({ ...opened, [s.id]: true })}>
+              <span class="grow">${s.title}</span><span class="muted sm">${s.items.filter((_, i) => said[`${s.id}.${i}`]).length} из ${s.items.length}</span>
+              <${Icon} name="down" size=${18} stroke=${2.4} /></button>`))}
+      </section>` : null}
+    </div>
+    <div class="bottom pad">${any
+      ? html`<button type="button" class="btn btn-primary btn-block" onClick=${() => go('baby')}>Готово</button>`
+      : html`<button type="button" class="btn btn-primary btn-block" onClick=${() => go('babyPrep', { id: sug.id, back: 'baby' })}><${Icon} name="ear" size=${20} /> Подготовиться: ${sug.title.toLowerCase()}</button>`}</div>
   </main>`;
 }
 
@@ -2973,11 +3240,14 @@ function routeAfterStart(st) {
 function upRoute(route, st) {
   const start = st.profile.mode === 'baby' ? 'baby' : 'home';
   switch (route.name) {
-    case 'topic': case 'review': return { name: 'home' };
+    case 'topic': return { name: 'home' };
+    case 'review': return { name: route.back || 'home' };
     case 'conv': return { name: 'topic', ti: route.ti };
     case 'race': return route.ti != null ? { name: 'topic', ti: route.ti } : { name: 'home' };
     case 'rules': return { name: route.back || 'phrasebook' };
-    case 'babyScen': return { name: 'baby' };
+    case 'babyScen': return { name: route.back || 'baby' };
+    case 'babyAll': case 'babyDay': return { name: 'baby' };
+    case 'babyPrep': return route.back === 'babyScen' ? { name: 'babyScen', id: route.id, back: route.from } : { name: 'baby' };
     case 'baby': return start === 'baby' ? null : { name: 'phrasebook' };
     case 'home': case 'phrasebook': case 'profile': return route.name === start ? null : { name: start };
     default: return null;
@@ -3068,7 +3338,7 @@ function App() {
       screen = html`<${ConvScreen} key=${`${route.ti}-${route.ci}-${route.k || 0}`} st=${st} update=${update} ti=${route.ti} ci=${route.ci} go=${go} />`;
       break;
     case 'review':
-      screen = html`<${Review} st=${st} update=${update} go=${go} />`;
+      screen = html`<${Review} st=${st} update=${update} go=${go} only=${route.only} back=${route.back} />`;
       break;
     case 'race':
       screen = html`<${RaceScreen} key=${`race-${route.ti ?? 'mix'}-${route.k || 0}`} st=${st} update=${update} go=${go} ti=${route.ti}
@@ -3083,8 +3353,17 @@ function App() {
     case 'baby':
       screen = html`<${Baby} st=${st} update=${update} go=${go} />`;
       break;
+    case 'babyAll':
+      screen = html`<${BabyAll} st=${st} go=${go} />`;
+      break;
     case 'babyScen':
-      screen = html`<${BabyScenario} st=${st} update=${update} go=${go} id=${route.id} />`;
+      screen = html`<${BabyScenario} key=${route.id} st=${st} go=${go} id=${route.id} back=${route.back} />`;
+      break;
+    case 'babyPrep':
+      screen = html`<${BabyPrep} key=${`prep-${route.id}-${route.k || 0}`} st=${st} update=${update} go=${go} id=${route.id} back=${route.back} from=${route.from} />`;
+      break;
+    case 'babyDay':
+      screen = html`<${BabyDay} st=${st} update=${update} go=${go} />`;
       break;
     case 'profile':
       screen = html`<${Profile} st=${st} update=${update} go=${go} />`;

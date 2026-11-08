@@ -1,5 +1,5 @@
-// Checking a typed Kazakh message: which answers count as the same and what hint to give.
-// No dependencies, so tools/validate.mjs tests it in Node.
+// Kazakh text without dependencies, so tools/validate.mjs tests it in Node: checking a typed message
+// (which answers count as the same and what hint to give), syllables, a phrase with a word put in.
 
 export const KZ_LETTERS = ['ә', 'ғ', 'қ', 'ң', 'ө', 'ұ', 'ү', 'һ', 'і'];
 const PLAIN = { 'ә': 'а', 'ғ': 'г', 'қ': 'к', 'ң': 'н', 'ө': 'о', 'ұ': 'у', 'ү': 'у', 'һ': 'х', 'і': 'и' };
@@ -85,4 +85,56 @@ export function checkTyped(typed, answers) {
     }
   }
   return { ok: false };
+}
+
+// Syllables of a Kazakh phrase for reading aloud: «қа-йыр-лы таң · кү-нім». Each syllable has one
+// vowel; of the consonants between two vowels the last one opens the next syllable. «у» after a
+// vowel, or first in a word before a vowel, is the consonant [w]: «а-уыз», «тау», «уа-қыт».
+// Punctuation becomes a pause «·». tools/validate.mjs compares it with the syllables of the lessons.
+const VOWELS = 'аәеёиіоөұүыэюя';
+const isVowel = (ch) => VOWELS.includes(ch);
+
+function syllablesOfWord(w) {
+  const ch = [...w];
+  const nucleus = ch.map((c, i) => (c === 'у'
+    ? !(i > 0 && isVowel(ch[i - 1])) && !(i === 0 && ch.length > 1 && isVowel(ch[1]))
+    : isVowel(c)));
+  const at = ch.map((_, i) => i).filter((i) => nucleus[i]);
+  if (at.length < 2) return [w];
+  const cuts = at.slice(1).map((b, k) => {
+    const a = at[k];
+    if (b === a + 1) return b;
+    // ь and ъ stay with the consonant before them.
+    let cut = b - 1;
+    while (cut > a + 1 && /[ьъ]/.test(ch[cut])) cut--;
+    return /[ьъ]/.test(ch[cut]) ? cut + 1 : cut;
+  });
+  const out = [];
+  let from = 0;
+  cuts.forEach((c) => { out.push(ch.slice(from, c).join('')); from = c; });
+  out.push(ch.slice(from).join(''));
+  return out;
+}
+
+export function syllables(text) {
+  const parts = String(text).toLowerCase().split(/\s*[,.!?;:—–]+\s*|\s+/u);
+  const pause = String(text).toLowerCase().match(/\s*[,.!?;:—–]+\s*|\s+/gu) || [];
+  let out = '';
+  parts.forEach((tok, i) => {
+    const word = tok.replace(/[^а-яёәғқңөұүһі-]/g, '');
+    if (word) out += word.split('-').filter(Boolean).map((p) => syllablesOfWord(p).join('-')).join('-');
+    const gap = pause[i];
+    if (gap && i < parts.length - 1 && parts.slice(i + 1).some((p) => p.replace(/[^а-яёәғқңөұүһі]/g, ''))) {
+      out += /[,.!?;:—–]/.test(gap) ? ' · ' : ' ';
+    }
+  });
+  return out.replace(/\s+·\s+·\s+/g, ' · ').trim();
+}
+
+// A phrase with a place for one word, «Міне, {w}!» + «шұлығың», in three parts: before, the word,
+// after. A word that begins a sentence gets a capital letter. «Малыш» shows it; tools/audio.mjs voices it.
+export function fillSlot(frame, word) {
+  const [a, b = ''] = String(frame).split('{w}');
+  const w = !a.trim() || /[.!?]\s*$/.test(a) ? word.charAt(0).toUpperCase() + word.slice(1) : word;
+  return [a, w, b];
 }

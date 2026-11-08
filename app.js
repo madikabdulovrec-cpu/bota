@@ -1,12 +1,12 @@
 // Бота — MVP: conversational Kazakh for Russian speakers.
 import { html, render, useState, useEffect, useRef, useMemo, useErrorBoundary } from 'https://cdn.jsdelivr.net/npm/htm@3.1.1/preact/standalone.module.js';
-import { KINDS, CITIES, JOBS, HOBBIES, CHOICES, PEOPLE, PHRASES, TOPICS, LEVELS, RULES, RESCUE, PHRASEBOOK, BABY, BABY_GROUPS, BABY_AGES, BABY_GOAL, FACTS, RACE_APART } from './content.js?v=e7a2bae';
-import * as fsrs from './fsrs.js?v=e7a2bae';
-import * as voice from './voice.js?v=e7a2bae';
-import * as mic from './mic.js?v=e7a2bae';
-import * as stats from './stats.js?v=e7a2bae';
-import { KZ_LETTERS, checkTyped, normType, plain } from './typing.js?v=e7a2bae';
-import { Icon, PlayGlyph, SpeakerGlyph, Sun, Logo, Bota, Avatar, Yurt, Photo, Shanyrak, Wave } from './art.js?v=e7a2bae';
+import { KINDS, CITIES, JOBS, HOBBIES, CHOICES, PEOPLE, PHRASES, TOPICS, LEVELS, RULES, RESCUE, PHRASEBOOK, BABY, BABY_GROUPS, BABY_AGES, BABY_GOAL, FACTS, RACE_APART } from './content.js?v=410fe73';
+import * as fsrs from './fsrs.js?v=410fe73';
+import * as voice from './voice.js?v=410fe73';
+import * as mic from './mic.js?v=410fe73';
+import * as stats from './stats.js?v=410fe73';
+import { KZ_LETTERS, checkTyped, normType, plain } from './typing.js?v=410fe73';
+import { Icon, PlayGlyph, SpeakerGlyph, Sun, Logo, Bota, Avatar, Yurt, Photo, Shanyrak, Wave } from './art.js?v=410fe73';
 
 // The version of the app: tools/site.mjs gives every module address ?v=<commit>.
 const VERSION = new URL(import.meta.url).searchParams.get('v') || 'dev';
@@ -1071,7 +1071,7 @@ function TopicScreen({ st, ti, go }) {
 
 /* ---------- conversation player ---------- */
 
-const isTurn = (s) => !!(s.check || s.pick || s.build || s.say || s.choose || s.pair || s.type);
+const isTurn = (s) => !!(s.check || s.pick || s.build || s.say || s.own || s.choose || s.pair || s.type);
 
 function autoMsg(step, v, topic) {
   if (step.note) return { k: 'note', text: val(step.note, v) };
@@ -1081,9 +1081,24 @@ function autoMsg(step, v, topic) {
   return { k: 'npc', who: step.who || topic.who, kk: val(step.npc, v), ru: val(step.ru, v) };
 }
 
+// The drawn shape of a heard line: the same text, the same shape; a longer line, more bars.
+function waveOf(text) {
+  const s = String(text);
+  const vowels = (s.match(/[аәеёиіоөуұүыэюя]/gi) || []).length;
+  const n = Math.max(8, Math.min(22, Math.round(vowels * 1.4)));
+  let h = 0x811c9dc5;
+  return Array.from({ length: n }, (_, i) => {
+    h ^= s.charCodeAt(i % s.length) + i;
+    h = Math.imul(h, 0x01000193) >>> 0;
+    return 0.2 + (h % 997) / 1250;
+  });
+}
+
 // A line of the other person shows its translation when tr is on; a tap on the line toggles it.
 // The learner's own line always shows it: the answer is given by then.
-function Msg({ m, tr, hint, topic, onRule, onTr }) {
+// A heard line (m.hidden: «Послушай», or a fast line to ask about) is a voice message until its text
+// opens: on «текст» (onShow), with «Ру» (all), or by itself once the question about it is answered.
+function Msg({ m, tr, all, hint, topic, onRule, onTr, onShow }) {
   if (m.k === 'note') return html`<div class="m-note">${m.text}</div>`;
   if (m.k === 'tip') return html`<div class="m-tip"><${Bota} size=${28} /><span><b>Бота:</b> ${m.text}</span></div>`;
   if (m.k === 'img') return html`<div class=${'m-img ' + (m.me ? 'me' : 'them')}><${Photo} kind=${m.art} /></div>`;
@@ -1102,9 +1117,18 @@ function Msg({ m, tr, hint, topic, onRule, onTr }) {
   if (m.k === 'me') {
     return html`<div class="b b-me"><span class="b-kk" lang="kk">${m.kk}</span>${m.ru ? html`<span class="b-tr">${m.ru}</span>` : null}</div>`;
   }
+  // After an answer in one's own words Bota shows one way to say it, to compare with one's own.
+  if (m.k === 'model') {
+    return html`<div class="m-tip"><${Bota} size=${28} /><span class="m-tip-text"><b>Бота:</b> можно сказать и так — <b class="kk" lang="kk">${m.kk}</b>${all && m.ru
+      ? html` <span class="m-tip-ru">«${m.ru}»</span>` : null}</span><${SpeakBtn} text=${m.kk} small label="Послушать пример" /></div>`;
+  }
   // The learner's voice message: ▶ plays the recording (and calls off one under way). Said without a
   // microphone, the line is the phrase marked «сказал(а) вслух» — no drawn recording that never was.
+  // An answer in one's own words (m.own) shows no text: nobody knows what was said.
   if (m.k === 'voice') {
+    if (!m.url && m.own) {
+      return html`<div class="b b-me b-said"><span class="b-said-row"><${Icon} name="mic" size=${13} stroke=${2.4} /> ответил(а) вслух</span></div>`;
+    }
     if (!m.url) {
       return html`<div class="b b-me b-said"><span class="b-kk" lang="kk">${m.kk}</span>
         <span class="b-said-row"><${Icon} name="mic" size=${13} stroke=${2.4} /> сказал(а) вслух${voice.canSay(m.kk)
@@ -1124,10 +1148,28 @@ function Msg({ m, tr, hint, topic, onRule, onTr }) {
     return html`<div class="b b-me b-voice"><span class="b-voice-row">
       <button type="button" class="vplay" aria-label="Послушать свою запись" onClick=${play}><${PlayGlyph} size=${12} /></button><${Wave} levels=${m.levels} />
       ${m.ms ? html`<span class="b-dur">0:${pad2(Math.max(1, Math.round(m.ms / 1000)))}</span>` : null}</span>
-      <span class="b-kk sm" lang="kk">${m.kk}</span>
-      ${voice.canSay(m.kk) ? html`<span class="b-said-row"><button type="button" class="b-sample" onClick=${sample}>сравни с образцом</button></span>` : null}</div>`;
+      ${m.own ? null : html`<span class="b-kk sm" lang="kk">${m.kk}</span>`}
+      ${!m.own && voice.canSay(m.kk) ? html`<span class="b-said-row"><button type="button" class="b-sample" onClick=${sample}>сравни с образцом</button></span>` : null}</div>`;
   }
   const other = m.who !== topic.who;
+  if (m.hidden && !all) {
+    const name = PEOPLE[m.who].name;
+    const play = () => {
+      if (liveRecording) liveRecording.cancel();
+      mic.stopPlaying();
+      voice.speak(m.kk);
+    };
+    return html`<div class="m-row left">
+      ${other ? html`<${Avatar} who=${m.who} size=${30} label=${name} />` : null}
+      <div class="b b-npc b-heard">
+        ${other ? html`<span class="b-who">${name}</span>` : null}
+        <span class="b-voice-row">
+          <button type="button" class="vplay" aria-label=${`Послушать: ${name}`} onClick=${play}><${PlayGlyph} size=${12} /></button><${Wave} levels=${waveOf(m.kk)} />
+          <button type="button" class="b-show" aria-label="Показать текст реплики" onClick=${onShow}>текст</button>
+        </span>
+      </div>
+    </div>`;
+  }
   return html`<div class="m-row left">
     ${other ? html`<${Avatar} who=${m.who} size=${30} label=${PEOPLE[m.who].name} />` : null}
     <div class="b b-npc">
@@ -1144,7 +1186,9 @@ function Msg({ m, tr, hint, topic, onRule, onTr }) {
 // chat (onHint), the right one goes on with the conversation. No green or red plates.
 
 // listen: a question about what was heard; with a Kazakh voice a wrong answer suggests listening again.
-function CheckPanel({ step, listen, auto, onDone, onHint }) {
+// slowly: plays the lines of the question once more, slowly; onDeaf: «Сейчас не могу слушать» — the
+// rest of the lesson in text.
+function CheckPanel({ step, listen, auto, slowly, onDeaf, onDone, onHint }) {
   // Syllables of a word keep their order; other answers are shuffled.
   const order = useMemo(() => (step.keep ? step.opts.map((_, i) => i) : shuffle(step.opts.map((_, i) => i))), []);
   const [tried, setTried] = useState([]);
@@ -1162,13 +1206,15 @@ function CheckPanel({ step, listen, auto, onDone, onHint }) {
     onHint(`${x.why}${listen && !step.kk && voice.available() ? ' Послушай ещё раз.' : ''}`);
   };
   return html`<div class="panel-in">
-    <span class="eyebrow">ВОПРОС</span>
+    <div class="say-head"><span class="eyebrow">ВОПРОС</span>
+      ${slowly ? html`<button type="button" class="btn-chip ico" onClick=${slowly}><${SpeakerGlyph} size=${14} /> Медленно</button>` : null}</div>
     <p class="q">${step.check}</p>
     <div class=${'opts' + (step.keep ? ' row' : '')}>${order.map((i) => {
       const x = step.opts[i];
       const state = right === i ? ' good' : tried.includes(i) ? ' bad' : '';
       return html`<button type="button" class=${'opt' + (step.kk ? ' kk' : '') + state} lang=${step.kk ? 'kk' : null} onClick=${() => choose(i)}><span>${x.t}</span></button>`;
     })}</div>
+    ${onDeaf ? html`<span class="done-links"><button type="button" class="link-btn" onClick=${onDeaf}>Сейчас не могу слушать</button></span>` : null}
   </div>`;
 }
 
@@ -1279,9 +1325,12 @@ const MIC_NOTE = {
 // recall («Скажи голосом»): the phrase is said from memory, not read. The learner reads it and
 // listens, and as the recording starts the text hides behind its meaning; the voice message in the
 // chat then shows the phrase, with the sample next to the learner's own recording.
-function SayPanel({ step, v, tr, st, recall, paused, onPause, onResume, onDone, onHint }) {
-  const kk = val(step.say, v);
-  const syl = val(step.syl, v);
+// own (step.own, «Поговори без подсказок»): an answer in one's own words. No phrase to read: the
+// example (step.own) opens only on a tap, and after the answer Bota shows it in the chat.
+function SayPanel({ step, v, tr, st, recall, own, paused, onPause, onResume, onDone, onHint }) {
+  const kk = val(own ? step.own : step.say, v);
+  const syl = own ? '' : val(step.syl, v);
+  const [example, setExample] = useState(false);
   // idle → opening (the browser turns the microphone on) → rec → idle
   const [stage, setStage] = useState('idle');
   const [hidden, setHidden] = useState(false);
@@ -1315,7 +1364,8 @@ function SayPanel({ step, v, tr, st, recall, paused, onPause, onResume, onDone, 
     setStatus('');
     if (recall) setHidden(true);
     const r = mic.record({
-      maxMs: Math.min(15000, 3000 + syllables * 450),
+      // One's own answer may well be longer than the example.
+      maxMs: own ? Math.min(20000, 6000 + syllables * 500) : Math.min(15000, 3000 + syllables * 450),
       onStart: () => { if (alive.current) setStage('rec'); },
       onLevel: (l) => { if (alive.current) setMeter((m) => [...m.slice(-23), l]); },
     });
@@ -1340,13 +1390,15 @@ function SayPanel({ step, v, tr, st, recall, paused, onPause, onResume, onDone, 
       if (!res.heard) {
         drop();
         reveal();
-        stats.track('mic', { r: 'quiet', recall: !!recall });
-        setStatus('Не слышно. Поднеси телефон ближе и скажи фразу ещё раз.');
-        onHint('Тебя не слышно. Поднеси телефон ближе и скажи фразу ещё раз.');
+        stats.track('mic', { r: 'quiet', recall: !!recall, own: !!own });
+        const again = own ? 'ответь ещё раз' : 'скажи фразу ещё раз';
+        setStatus(`Не слышно. Поднеси телефон ближе и ${again}.`);
+        onHint(`Тебя не слышно. Поднеси телефон ближе и ${again}.`);
         return;
       }
       // A syllable takes about a fifth of a second: far less sound than that is not the whole phrase.
-      if (!asked.current && syllables >= 6 && res.voicedMs < syllables * 55) {
+      // One's own answer has no length to keep to.
+      if (!own && !asked.current && syllables >= 6 && res.voicedMs < syllables * 55) {
         asked.current = true;
         drop();
         reveal();
@@ -1355,7 +1407,7 @@ function SayPanel({ step, v, tr, st, recall, paused, onPause, onResume, onDone, 
         onHint('Похоже, это не вся фраза. Скажи её целиком.');
         return;
       }
-      stats.track('mic', { r: 'ok', recall: !!recall, ms: Math.round(res.ms || 0) });
+      stats.track('mic', { r: 'ok', recall: !!recall, own: !!own, ms: Math.round(res.ms || 0) });
       onDone(res);
     }, (e) => {
       settle();
@@ -1364,7 +1416,7 @@ function SayPanel({ step, v, tr, st, recall, paused, onPause, onResume, onDone, 
       let code = e && e.code;
       // In a frame (the claude.ai artifact) Safari refuses at once: the frame, not the learner, says no.
       if (code === 'denied' && window.self !== window.top) code = 'blocked';
-      stats.track('mic', { r: MIC_NOTE[code] ? code : 'error', recall: !!recall });
+      stats.track('mic', { r: MIC_NOTE[code] ? code : 'error', recall: !!recall, own: !!own });
       if (MIC_NOTE[code]) {
         micTrouble = code;
         micNoted.add(code);
@@ -1383,7 +1435,7 @@ function SayPanel({ step, v, tr, st, recall, paused, onPause, onResume, onDone, 
     // From memory without a recording: first the text hides, then the learner says it and taps.
     action = html`${recall && !hidden
       ? html`<button type="button" class="btn btn-primary btn-block" onClick=${() => setHidden(true)}><${Icon} name="mic" size=${20} /> Сказать по памяти</button>`
-      : html`<button type="button" class="btn btn-primary btn-block" onClick=${() => onDone(null)}><${Icon} name="mic" size=${20} /> Я сказал(а) вслух</button>`}
+      : html`<button type="button" class="btn btn-primary btn-block" onClick=${() => onDone(null)}><${Icon} name="mic" size=${20} /> ${own ? 'Я ответил(а) вслух' : 'Я сказал(а) вслух'}</button>`}
       ${note ? html`<span class="muted sm center" role="status">${trouble === 'blocked'
         ? html`Здесь микрофон недоступен — <a href=${SITE} target="_blank" rel="noopener">открой Боту по ссылке</a>, там запись работает.` : note}</span>` : null}
       ${again.length ? links(again) : null}`;
@@ -1394,13 +1446,28 @@ function SayPanel({ step, v, tr, st, recall, paused, onPause, onResume, onDone, 
         ? html`<button type="button" class="btn btn-ghost btn-block" onClick=${() => live.current && live.current.cancel()}>Отмена</button>`
         : html`<button type="button" class="btn btn-primary btn-block" onClick=${() => live.current && live.current.stop()}><span class="stop-glyph" aria-hidden="true"></span> Готово</button>`}`;
   } else {
-    action = html`<button type="button" class="btn btn-primary btn-block" onClick=${start}><${Icon} name="mic" size=${20} /> ${recall ? 'Сказать по памяти' : 'Записать'}</button>
+    action = html`<button type="button" class="btn btn-primary btn-block" onClick=${start}><${Icon} name="mic" size=${20} /> ${own ? 'Ответить голосом' : recall ? 'Сказать по памяти' : 'Записать'}</button>
       ${status ? html`<span class="say-status" role="status">${status}</span>` : null}
       ${links([['Сейчас не могу говорить', onPause]])}`;
   }
 
   // While the microphone listens, the sample stays silent: it would be recorded as the learner's voice.
   const busy = stage !== 'idle';
+  if (own) {
+    // With «Ру» the meaning of the example is a hint of what to answer; the example itself opens on a tap.
+    return html`<div class="panel-in">
+      <div class="say-head"><span class="eyebrow">ОТВЕТЬ ГОЛОСОМ</span><span class="muted sm">своими словами</span></div>
+      <div class="say-card">
+        <span class="say-ask">Ответь по-казахски — так, как сказал(а) бы сам(а).</span>
+        ${tr ? html`<span class="say-ru">Например, по смыслу: «${val(step.ru, v)}»</span>` : null}
+        ${example
+          ? html`<span class="say-kk own" lang="kk">${kk}</span>
+            ${voice.canSay(kk) ? html`<div class="say-ctl"><button type="button" class="ctl" disabled=${busy} onClick=${() => voice.speak(kk)}><${SpeakerGlyph} size=${16} /> Послушать</button></div>` : null}`
+          : html`<button type="button" class="link-btn peek" onClick=${() => setExample(true)}>Пример ответа</button>`}
+      </div>
+      ${action}
+    </div>`;
+  }
   const hint = recall ? (hidden ? '' : 'запомни — текст спрячется') : step.stress ? 'жирным — ударный слог' : 'можно по слогам';
   return html`<div class="panel-in">
     <div class="say-head"><span class="eyebrow">${recall ? 'СКАЖИ ПО ПАМЯТИ' : 'СКАЖИ ВСЛУХ'}</span>${hint ? html`<span class="muted sm">${hint}</span>` : null}</div>
@@ -1623,6 +1690,15 @@ function ConvScreen({ st, update, ti, ci, go }) {
   const [voiceChecked, setVoiceChecked] = useState(false);
   // «Сейчас не могу говорить» turns the microphone off until the end of the lesson.
   const [micPaused, setMicPaused] = useState(false);
+  // «Послушай» is heard, not read: a line that can sound comes as a voice message (m.hidden), and its
+  // text opens once the question about it is answered. A fast line (step.fast) — the one to ask about
+  // with «Қайталаңызшы» — is heard first in any lesson and opens after the next reply. «Сейчас не
+  // могу слушать» (deaf) brings the text back and stops the voice until the end of the lesson.
+  const [deaf, setDeaf] = useState(false);
+  const deafRef = useRef(false);
+  // Where the lines since the learner's last turn begin in the log: what «Медленно» plays again.
+  const segStart = useRef(0);
+  const openAll = (l) => (l.some((m) => m.hidden) ? l.map((m) => (m.hidden ? { ...m, hidden: false } : m)) : l);
   // The learner's recordings live only while the lesson is open.
   const recordings = useRef([]);
   const scroller = useRef(null);
@@ -1670,6 +1746,7 @@ function ConvScreen({ st, update, ti, ci, go }) {
     });
     track.current.done = true;
     stats.track('lesson_done', { id: conv.id, kind: conv.kind, first, closed, s: Math.round((now - track.current.t0) / 1000), typed: typed.current.n, clean: typed.current.clean });
+    setLog(openAll);
     setResult({ added: added.length, typed: typed.current.n, clean: typed.current.clean, first, closed });
   }
 
@@ -1692,10 +1769,13 @@ function ConvScreen({ st, update, ti, ci, go }) {
       if (!shown) {
         const cur = stRef.current;
         const msg = autoMsg(step, varsOf(cur), t);
+        const heard = cur.settings.voice && !deafRef.current;
+        if (isNpc && heard && (conv.kind === 'listen' || step.fast) && voice.canSay(msg.kk)) msg.hidden = true;
         shownPos.current = pos;
         setTyping(false);
         setLog((l) => [...l, msg]);
-        if (cur.settings.voice && isNpc) await voice.say(msg.kk);
+        // A fast line is said faster, its repeat (step.slow) slower.
+        if (heard && isNpc) await voice.say(msg.kk, step.slow ? 0.6 : step.fast ? 1.25 : 0.92);
         if (cur.settings.voice && msg.k === 'sound') await voice.say(msg.words.map((w) => w[0]).join(', '));
       }
       if (!cancelled) setPos((p) => p + 1);
@@ -1732,9 +1812,23 @@ function ConvScreen({ st, update, ti, ci, go }) {
     lastTurn.current = Date.now();
     const add = [...msgs];
     if (opts.rule && !stRef.current.rules[opts.rule]) add.push({ k: 'rule', rule: opts.rule, word: opts.word, ask: opts.ask });
-    setLog((l) => [...l, ...add]);
+    // Heard lines open after the question about them («Послушай»), elsewhere after the next reply.
+    const open = conv.kind !== 'listen' || opts.checked;
+    setLog((l) => {
+      const next = [...(open ? openAll(l) : l), ...add];
+      segStart.current = next.length;
+      return next;
+    });
     setPos((p) => p + 1);
   };
+
+  const cantListen = () => {
+    deafRef.current = true;
+    setDeaf(true);
+    voice.stop();
+    setLog(openAll);
+  };
+  const showLine = (i) => setLog((l) => l.map((m, j) => (j === i && m.hidden ? { ...m, hidden: false } : m)));
 
   const openRule = (id) => {
     voice.stop();
@@ -1759,8 +1853,14 @@ function ConvScreen({ st, update, ti, ci, go }) {
     const said = [...new Set(log.filter((m) => m.kk).map((m) => m.kk))];
     panel = html`<${DonePanel} st=${st} update=${update} conv=${conv} ti=${ti} ci=${ci} result=${result} v=${v} go=${go} said=${said} />`;
   } else if (step && isTurn(step) && !typing) {
-    if (step.check) panel = html`<${CheckPanel} key=${pos} step=${step} listen=${conv.kind === 'listen'} auto=${st.settings.voice} onHint=${hint} onDone=${() => advance([])} />`;
-    else if (step.pick) {
+    if (step.check) {
+      // «Медленно» plays the lines of this question again; heard ones can be read instead for the rest.
+      const listen = conv.kind === 'listen' && !deaf && voice.available();
+      const lines = log.slice(segStart.current).filter((m) => m.k === 'npc' && voice.canSay(m.kk)).map((m) => m.kk);
+      panel = html`<${CheckPanel} key=${pos} step=${step} listen=${conv.kind === 'listen'} auto=${st.settings.voice}
+        slowly=${listen && lines.length ? () => { mic.stopPlaying(); voice.sayAll(lines, 0.6); } : null}
+        onDeaf=${listen && st.settings.voice ? cantListen : null} onHint=${hint} onDone=${() => advance([], { checked: true })} />`;
+    } else if (step.pick) {
       panel = html`<${PickPanel} key=${pos} step=${step} v=${v} tr=${tr} onHint=${hint}
         onDone=${(o) => advance([{ k: 'me', kk: val(o.kk, v), ru: val(o.ru, v) }], { rule: step.rule, word: step.word })} />`;
     } else if (step.choose) {
@@ -1772,12 +1872,18 @@ function ConvScreen({ st, update, ti, ci, go }) {
     } else if (step.build) {
       panel = html`<${BuildPanel} key=${pos} step=${step} v=${v} tr=${task} onHint=${hint}
         onDone=${() => advance([{ k: 'me', kk: val(step.text, v), ru: val(step.ru, v) }], { rule: step.rule, word: step.word })} />`;
-    } else if (step.say) {
-      panel = html`<${SayPanel} key=${pos} step=${step} v=${v} tr=${task} st=${st} recall=${conv.kind === 'speak'} paused=${micPaused} onHint=${hint}
+    } else if (step.say || step.own) {
+      // An answer in one's own words goes to the chat as a voice message; Bota then shows the example.
+      const own = !!step.own;
+      panel = html`<${SayPanel} key=${pos} step=${step} v=${v} tr=${task} st=${st} recall=${conv.kind === 'speak'} own=${own} paused=${micPaused} onHint=${hint}
         onPause=${() => setMicPaused(true)} onResume=${() => setMicPaused(false)}
         onDone=${(res) => {
           if (res && res.url) recordings.current.push(res.url);
-          advance([{ k: 'voice', kk: val(step.say, v), url: res && res.url, ms: res && res.ms, levels: res && res.levels }]);
+          const kk = val(own ? step.own : step.say, v);
+          const said = { k: 'voice', own, kk, url: res && res.url, ms: res && res.ms, levels: res && res.levels };
+          // The example may come with a rule chip, like the answer it was: «Почему «алдым»?».
+          if (own) advance([said, { k: 'model', kk, ru: val(step.ru, v) }], { rule: step.rule, word: step.word });
+          else advance([said]);
         }} />`;
     } else if (step.pair) {
       panel = html`<${PairPanel} key=${pos} step=${step} auto=${st.settings.voice} onHint=${hint} onDone=${(w) => advance([{ k: 'me', kk: w[0], ru: w[1] }])} />`;
@@ -1792,7 +1898,9 @@ function ConvScreen({ st, update, ti, ci, go }) {
     }
   }
 
-  const turnWord = { listen: 'вопрос', pron: 'упражнение', write: 'сообщение' }[conv.kind] || 'твоя реплика';
+  // «Послушай» with a reply of the learner's own («Қайталаңызшы!») counts steps, not questions.
+  const turnWord = conv.kind === 'listen' ? (steps.some((s) => isTurn(s) && !s.check) ? 'шаг' : 'вопрос')
+    : { pron: 'упражнение', write: 'сообщение' }[conv.kind] || 'твоя реплика';
   const label = result ? (isSkill(conv) ? 'урок окончен' : 'разговор окончен') : `${turnWord} ${Math.min(turnsDone + 1, turns)} из ${turns}`;
   const showNoVoice = voiceChecked && !voice.available() && !st.seen.noVoice;
   // Keyboard and screen reader users land on the new answer panel, not on the top of the page.
@@ -1817,8 +1925,8 @@ function ConvScreen({ st, update, ti, ci, go }) {
         ${showNoVoice ? html`<div class="banner"><span>Здесь фразы пока без звука: в этом браузере нет казахского голоса. Со звуком они работают <a href=${SITE} target="_blank" rel="noopener">в Боте по ссылке</a> и в Microsoft Edge.</span>
           <button type="button" class="btn-chip" onClick=${() => update((d) => { d.seen.noVoice = true; })}>Понятно</button></div>` : null}
         <span class="conv-kind">${KINDS[conv.kind].label} · ${conv.title}</span>
-        ${log.map((m, i) => html`<${Msg} key=${i} m=${m} tr=${tr || !!opened[i]} hint=${i === firstLine && !tr && !st.seen.trTap}
-          topic=${t} onRule=${openRule} onTr=${() => toggleLine(i)} />`)}
+        ${log.map((m, i) => html`<${Msg} key=${i} m=${m} tr=${tr || !!opened[i]} all=${tr} hint=${i === firstLine && !tr && !st.seen.trTap}
+          topic=${t} onRule=${openRule} onTr=${() => toggleLine(i)} onShow=${() => showLine(i)} />`)}
         ${typing ? html`<div class="m-row left"><div class="b b-npc typing" aria-label="печатает"><i></i><i></i><i></i></div></div>` : null}
       </div>
     </div>

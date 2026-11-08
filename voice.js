@@ -1,10 +1,10 @@
 // Kazakh speech. First choice: recorded lines — audio files made in advance, which any phone can
-// play (mvp/audio/, listed in audio-index.js, made by tools/audio.mjs with the Microsoft Azure voices
-// Aigul and Daulet: a man in the lessons speaks with the man's voice). Second: the browser's own
-// Kazakh voice (Web Speech; Edge ships online voices Aigul and Daulet). A line with the learner's
-// name has no file, and most browsers have no Kazakh voice, so every caller must work without sound.
+// play (mvp/audio/, listed in audio-index.js, made by tools/audio.mjs with the voice named in
+// mvp/audio/voice.json). Second: the browser's own Kazakh voice (Web Speech; Edge ships online
+// voices Aigul and Daulet). A line with the learner's name has no file, and most browsers have no
+// Kazakh voice, so every caller must work without sound.
 // A namespace import: an older audio-index.js without AUDIO_CREDIT must not stop the app.
-import * as INDEX from './audio-index.js?v=e7a2bae';
+import * as INDEX from './audio-index.js?v=410fe73';
 
 const AUDIO = INDEX.AUDIO || new Set();
 
@@ -49,6 +49,11 @@ const fileFor = (text) => {
 // One sound at a time, and none while the microphone records the learner.
 let player = null;
 let held = false;
+// A run of lines (sayAll) goes on while this number stays its own: any other sound ends it.
+let run = 0;
+
+// The speed of a file for a rate of the browser's voice: slow lines at 0.75, fast ones up to 1.3.
+const fileRate = (rate) => (rate < 0.8 ? 0.75 : rate > 1.05 ? Math.min(1.3, rate) : 1);
 
 // The learner's own recordings (mic.js) and these lines stop each other.
 const SOUND = 'bota-sound';
@@ -62,7 +67,7 @@ function stopFile() {
 }
 
 function startFile(src, rate) {
-  stop();
+  halt();
   announce();
   const a = new Audio(src);
   a.playbackRate = rate;
@@ -158,9 +163,10 @@ export function hold(on) {
 
 export function speak(text, rate = 0.92) {
   if (held || !text) return false;
+  run++;
   const src = fileFor(text);
   if (!src) return speakWeb(text, rate);
-  const a = startFile(src, rate < 0.8 ? 0.75 : 1);
+  const a = startFile(src, fileRate(rate));
   let fellBack = false;
   // A file that does not load gives way to the browser's voice.
   const fallBack = () => {
@@ -185,7 +191,7 @@ export function say(text, rate = 0.92) {
     const finish = () => { if (!finished) { finished = true; resolve(); } };
     const src = fileFor(text);
     if (!src) { sayWeb(text, rate).then(finish); return; }
-    const a = startFile(src, 1);
+    const a = startFile(src, fileRate(rate));
     let fellBack = false;
     const fallBack = () => {
       if (fellBack || finished) return;
@@ -203,7 +209,21 @@ export function say(text, rate = 0.92) {
   });
 }
 
-export function stop() {
+// Lines one after another: what was just said, once more («Медленно» in «Послушай»).
+export async function sayAll(texts, rate = 0.92) {
+  const mine = ++run;
+  for (const text of texts) {
+    if (mine !== run || held) return;
+    await say(text, rate);
+  }
+}
+
+function halt() {
   stopFile();
   try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (e) { /* no sound */ }
+}
+
+export function stop() {
+  run++;
+  halt();
 }

@@ -1,21 +1,21 @@
 // Бота without the network: the service worker of the site keeps this version of the app — the
 // page, its modules, icons, Preact and the fonts — so the app installed on a phone opens offline.
 // A template: tools/site.mjs fills in VERSION (the commit) and CORE (the files of the version).
-const VERSION = 'e7a2bae';
+const VERSION = '410fe73';
 const CORE = [
  "./",
- "app.js?v=e7a2bae",
- "art.js?v=e7a2bae",
- "audio-index.js?v=e7a2bae",
- "content-a2.js?v=e7a2bae",
- "content-b1.js?v=e7a2bae",
- "content-b2.js?v=e7a2bae",
- "content.js?v=e7a2bae",
- "fsrs.js?v=e7a2bae",
- "mic.js?v=e7a2bae",
- "stats.js?v=e7a2bae",
- "typing.js?v=e7a2bae",
- "voice.js?v=e7a2bae",
+ "app.js?v=410fe73",
+ "art.js?v=410fe73",
+ "audio-index.js?v=410fe73",
+ "content-a2.js?v=410fe73",
+ "content-b1.js?v=410fe73",
+ "content-b2.js?v=410fe73",
+ "content.js?v=410fe73",
+ "fsrs.js?v=410fe73",
+ "mic.js?v=410fe73",
+ "stats.js?v=410fe73",
+ "typing.js?v=410fe73",
+ "voice.js?v=410fe73",
  "apple-touch-icon.png",
  "icon-192.png",
  "icon-512.png",

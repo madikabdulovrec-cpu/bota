@@ -25,6 +25,12 @@ const ICONS = {
   car: 'M4 15l1.8-6.5h12.4L20 15M3 15h18v3.5H3z',
   refresh: 'M20 11a8 8 0 0 0-14.3-4.6L4 8M4 4v4h4M4 13a8 8 0 0 0 14.3 4.6L20 16M20 20v-4h-4',
   flag: 'M5 21V4M5 4h12.5l-2.5 4.5 2.5 4.5H5',
+  // Situations of the phrasebook: a shopping bag, the cross of a clinic, a pill, a bank card, a case.
+  bag: 'M5.5 8h13l-1 12.5h-11zM9 8V6.5a3 3 0 0 1 6 0V8',
+  plus: 'M9.5 3.5h5v6h6v5h-6v6h-5v-6h-6v-5h6z',
+  pill: 'M10.6 20.4a4.9 4.9 0 0 1-7-7l6.8-6.8a4.9 4.9 0 0 1 7 7zM7 10l7 7',
+  card: 'M3 6h18v12H3zM3 10h18M7 14.5h4',
+  case: 'M3.5 8h17v11.5h-17zM9 8V5.5h6V8M3.5 13h17',
   // A рубеж: a rhombus within a rhombus, as in the ornaments of felt.
   gate: 'M12 2.8L21.2 12 12 21.2 2.8 12zM12 8.4L15.6 12 12 15.6 8.4 12z',
   phone: 'M7 2.5h10a1 1 0 0 1 1 1v17a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1v-17a1 1 0 0 1 1-1zM12 7v7M9 11l3 3 3-3M10.5 18.5h3',

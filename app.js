@@ -1,13 +1,13 @@
 // Бота — MVP: conversational Kazakh for Russian speakers.
 import { html, render, useState, useEffect, useRef, useMemo, useErrorBoundary } from 'https://cdn.jsdelivr.net/npm/htm@3.1.1/preact/standalone.module.js';
-import { KINDS, CITIES, JOBS, HOBBIES, CHOICES, PEOPLE, PHRASES, TOPICS, LEVELS, RULES, RESCUE, PHRASEBOOK, BABY, BABY_GROUPS, BABY_AGES, BABY_GOAL, BABY_NOW, FACTS, RACE_APART } from './content.js?v=2ddb43c';
-import * as fsrs from './fsrs.js?v=2ddb43c';
-import * as voice from './voice.js?v=2ddb43c';
-import * as mic from './mic.js?v=2ddb43c';
-import * as stats from './stats.js?v=2ddb43c';
-import { KZ_LETTERS, checkTyped, normType, plain, syllables, fillSlot } from './typing.js?v=2ddb43c';
-import { CHECKS, BLOCK, SIZE, PLACE_ASK, PLACE_PASS, checkItems, placeItems, need, passes } from './exam.js?v=2ddb43c';
-import { Icon, PlayGlyph, SpeakerGlyph, Sun, Logo, Bota, Avatar, Yurt, Photo, Shanyrak, Wave } from './art.js?v=2ddb43c';
+import { KINDS, CITIES, JOBS, HOBBIES, CHOICES, PEOPLE, PHRASES, TOPICS, LEVELS, RULES, RESCUE, PHRASEBOOK, BABY, BABY_GROUPS, BABY_AGES, BABY_GOAL, BABY_NOW, FACTS, RACE_APART } from './content.js?v=e1d30e0';
+import * as fsrs from './fsrs.js?v=e1d30e0';
+import * as voice from './voice.js?v=e1d30e0';
+import * as mic from './mic.js?v=e1d30e0';
+import * as stats from './stats.js?v=e1d30e0';
+import { KZ_LETTERS, checkTyped, normType, plain, syllables, fillSlot } from './typing.js?v=e1d30e0';
+import { CHECKS, BLOCK, SIZE, PLACE_ASK, PLACE_PASS, checkItems, placeItems, need, passes } from './exam.js?v=e1d30e0';
+import { Icon, PlayGlyph, SpeakerGlyph, Sun, Logo, Bota, Avatar, Yurt, Photo, Shanyrak, Wave } from './art.js?v=e1d30e0';
 
 // The version of the app: tools/site.mjs gives every module address ?v=<commit>.
 const VERSION = new URL(import.meta.url).searchParams.get('v') || 'dev';
@@ -644,7 +644,7 @@ function phrase(id) {
   const m = /^pb\.([a-z])(\d)$/.exec(id);
   if (m) {
     const cat = PHRASEBOOK.find((c) => c.id === m[1]);
-    const it = cat && cat.items[Number(m[2])];
+    const it = cat && cat.items && cat.items[Number(m[2])];
     if (it) return { kk: it[0], ru: it[1] };
   }
   return null;
@@ -671,18 +671,29 @@ const topicFull = (st, t) => topicKnown(st, t) || topicDone(st, t) === t.convs.l
 // A рубеж can be taken once every topic before it is behind.
 const cpOpen = (st, cp) => cp.topics.every((id) => topicFull(st, TOPIC_BY_ID.get(id)));
 
-// Lessons open one after another; the first lesson of every level is open from the start,
-// so a learner who knows the basics can begin with the city. The first lesson after a рубеж
-// waits for it to be taken; lessons already done stay open.
-function convOpen(st, ti, ci) {
-  const idx = ALL_CONVS.findIndex((x) => x.ti === ti && x.ci === ci);
+// A topic the way of the course has reached: the first of its level, a known one, or one whose
+// previous topic is behind (and the рубеж after it taken). Topics are reached one after another.
+function reached(st, ti) {
+  const idx = ALL_CONVS.findIndex((x) => x.ti === ti && x.ci === 0);
   const cur = ALL_CONVS[idx];
-  if (idx <= 0 || st.done[cur.c.id] || topicKnown(st, cur.t)) return true;
+  if (idx <= 0 || topicKnown(st, cur.t)) return true;
   const prev = ALL_CONVS[idx - 1];
   if (prev.t.level !== cur.t.level) return true;
   if (!lessonKnown(st, prev)) return false;
-  const cp = ci === 0 ? CP_AFTER.get(prev.t.id) : null;
+  const cp = CP_AFTER.get(prev.t.id);
   return !cp || cpTaken(st, cp);
+}
+
+// Lessons of a topic open one after another. The first two lessons of every topic are open at any
+// time (flexible entry: the doctor tomorrow, the bank today), «Скажи голосом» after them; the rest
+// of a topic — «без подсказок», pronunciation, writing — waits until the way of the course reaches
+// the topic: they ask for words of the topics before it. Lessons already done stay open.
+function convOpen(st, ti, ci) {
+  const idx = ALL_CONVS.findIndex((x) => x.ti === ti && x.ci === ci);
+  const cur = ALL_CONVS[idx];
+  if (idx <= 0 || st.done[cur.c.id] || topicKnown(st, cur.t) || ci < 2) return true;
+  if (!lessonKnown(st, ALL_CONVS[idx - 1])) return false;
+  return ci === 2 || reached(st, ti);
 }
 
 const isSkill = (c) => c.kind === 'pron' || c.kind === 'write';
@@ -691,14 +702,16 @@ const isSkill = (c) => c.kind === 'pron' || c.kind === 'write';
 // ({ cp, t } — t is that topic, for its level).
 const PATH = ALL_CONVS.flatMap((x) => (x.ci === x.t.convs.length - 1 && CP_AFTER.has(x.t.id) ? [x, { cp: CP_AFTER.get(x.t.id), t: x.t }] : [x]));
 const stepBehind = (st, x) => (x.cp ? cpTaken(st, x.cp) : lessonKnown(st, x));
+// On the way: a lesson done somewhere ahead, by the flexible entry, does not move the way on.
+const onWay = (st, x) => (x.cp ? cpTaken(st, x.cp) : lessonKnown(st, x) && reached(st, x.ti));
 
-// The step after the furthest one behind — a lesson or a рубеж, in one level or in the whole course;
-// steps left behind come after the end.
+// The step after the furthest one on the way — a lesson or a рубеж, in one level or in the whole
+// course; lessons done ahead are passed over, steps left behind come after the end.
 function nextUp(st, level) {
   const list = level ? PATH.filter((x) => x.t.level === level) : PATH;
   let last = -1;
-  list.forEach((x, i) => { if (stepBehind(st, x)) last = i; });
-  return list[last + 1] || list.find((x) => !stepBehind(st, x)) || null;
+  list.forEach((x, i) => { if (onWay(st, x)) last = i; });
+  return list.slice(last + 1).find((x) => !stepBehind(st, x)) || list.find((x) => !stepBehind(st, x)) || null;
 }
 
 // Where a step leads: a lesson or a рубеж.
@@ -1030,13 +1043,14 @@ function CircleMap({ st, go, level }) {
       const n = topicDone(st, t);
       const isCur = !!nx && nx.ti === ti;
       const known = topicKnown(st, t) && n < t.convs.length;
-      const status = n === t.convs.length || (known && !isCur) ? 'done' : isCur ? 'cur' : convOpen(st, ti, 0) ? 'open' : 'locked';
+      // A topic the way has not reached is grey, yet its first two lessons are open (flexible entry).
+      const status = n === t.convs.length || (known && !isCur) ? 'done' : isCur ? 'cur' : reached(st, ti) ? 'open' : 'locked';
       const [x, y] = slotXY(i, items.length);
       const size = isCur ? 56 : 40;
       // The current person's name is on the card below the map, so the map carries no labels.
       return html`<button type="button" class=${'av-btn' + (isCur ? ' cur' : '')}
         style=${`left:${((x / 342) * 100).toFixed(2)}%;top:${((y / 342) * 100).toFixed(2)}%;--half:${size / 2}px`}
-        aria-label=${`${PEOPLE[t.who].name}: ${t.title}, ${status === 'locked' ? 'откроется позже' : known ? 'знакомая тема' : `${n} из ${t.convs.length}`}`} onClick=${() => go('topic', { ti })}>
+        aria-label=${`${PEOPLE[t.who].name}: ${t.title}, ${status === 'locked' ? (n ? `впереди, ${n} из ${t.convs.length}` : 'впереди, первые уроки открыты') : known ? 'знакомая тема' : `${n} из ${t.convs.length}`}`} onClick=${() => go('topic', { ti })}>
         <${AvatarRing} who=${t.who} size=${size} status=${status} frac=${n / t.convs.length} />
       </button>`;
     })}
@@ -1175,7 +1189,8 @@ function Home({ st, go, update }) {
 
 /* ---------- topic: one person, four conversations ---------- */
 
-function TopicScreen({ st, ti, go }) {
+// back: the screen the topic was opened from (the phrasebook), else «Мой круг».
+function TopicScreen({ st, ti, go, back }) {
   const t = PLAYABLE[ti];
   if (!t) return null;
   const p = PEOPLE[t.who];
@@ -1194,17 +1209,20 @@ function TopicScreen({ st, ti, go }) {
   const gate = passed && (cps === 'cur' || cps === 'open') ? cp : null;
   // Known by the entrance test: every lesson open, none done yet.
   const known = topicKnown(st, t) && rows.some((r) => !r.done);
+  // Ahead of the way: the first lessons are open already, the rest when the way comes here.
+  const ahead = !reached(st, ti) && rows.some((r) => !r.done);
   const cta = target ? `Начать: ${KINDS[target.c.kind].label.toLowerCase()}`
     : before ? `Сначала: ${before.cp ? (before.cp.final ? 'итог круга' : 'рубеж') : before.t.title.toLowerCase()}`
       : gate ? (gate.final ? 'Начать итог круга' : 'Начать рубеж') : race ? 'Бәйге — скачки по теме' : 'Пройти тему ещё раз';
   const onCta = () => (target ? go('conv', { ti, ci: target.ci }) : before ? goStep(go, before)
     : gate ? go('test', { id: gate.id }) : race ? go('race', { ti }) : go('conv', { ti, ci: 0 }));
   return html`<main class="screen">
-    <${TopBar} title=${t.title} sub=${t.kk} subLang="kk" onBack=${() => go('home')} backLabel="Вернуться в «Мой круг»" />
+    <${TopBar} title=${t.title} sub=${t.kk} subLang="kk" onBack=${() => go(back || 'home')} backLabel=${back === 'phrasebook' ? 'Вернуться в разговорник' : 'Вернуться в «Мой круг»'} />
     <div class="scroll pad topic">
       <div class="person"><${Avatar} who=${t.who} size=${64} />
         <span><b class="h3">${p.name}</b><span class="muted sm">${p.ru} · ${t.convs.length} ${plural(t.convs.length, LESSON_W)} по 1–2 минуты</span></span></div>
-      ${known ? html`<span class="mem-note"><${Icon} name="gate" size=${18} />Знакомая тема по входному тесту: уроки открыты, можно пройти любой.</span>` : null}
+      ${known ? html`<span class="mem-note"><${Icon} name="gate" size=${18} />Знакомая тема по входному тесту: уроки открыты, можно пройти любой.</span>`
+        : ahead ? html`<span class="mem-note"><${Icon} name="next" size=${18} />Тема впереди: первые уроки открыты уже сейчас, остальные — когда дойдёшь до неё по кругу.</span>` : null}
       <ol class="conv-list">${rows.map((r) => html`<li>
         <button type="button" class=${'conv-row ' + (r.done ? 'done' : r === target ? 'open' : r.open ? '' : 'locked')} disabled=${!r.open} onClick=${() => go('conv', { ti, ci: r.ci })}>
           <span class="conv-ic"><${Icon} name=${KINDS[r.c.kind].icon} size=${20} /></span>
@@ -1864,7 +1882,10 @@ function DonePanel({ st, update, conv, ti, ci, result, v, go, said }) {
   // The third lesson of a topic, done for the first time, opens the race of its words.
   const topic = PLAYABLE[ti];
   const opened = result.first && ci === 2 && topic.words && topic.words.length;
-  const nx = nextUp(st, PLAYABLE[ti].level) || nextUp(st);
+  // Next: the next open lesson of this topic — a topic ahead of the way goes on within itself — or else
+  // the next step of the way.
+  const inTopic = topic.convs.findIndex((c, i) => i > ci && !st.done[c.id] && convOpen(st, ti, i));
+  const nx = (inTopic > ci ? ALL_CONVS.find((x) => x.ti === ti && x.ci === inTopic) : null) || nextUp(st, PLAYABLE[ti].level) || nextUp(st);
   const nextText = nx ? stepLabel(nx, ti) : null;
   const toNext = () => (nx ? goStep(go, nx) : go('home'));
   const note = result.added ? `${result.added} ${plural(result.added, PHR_W)} — в памяти, повторим завтра`
@@ -3147,13 +3168,26 @@ function RaceScreen({ st, update, go, ti, quick, setup, duel: duelIn }) {
 // Search ignores case, punctuation and Kazakh letters typed as Russian ones: «салем» finds «Сәлем».
 const loose = (s) => plain(normType(s));
 
+// The phrases of a situation: its own (pb.<id><n>) or phrases of the course (ids of PHRASES).
+const situationItems = (c, v) => (c.phrases
+  ? c.phrases.filter((id) => PHRASES[id]).map((id) => ({ id, kk: fill(PHRASES[id].kk, v), ru: fill(PHRASES[id].ru, v) }))
+  : c.items.map((it, i) => ({ id: `pb.${c.id}${i}`, kk: it[0], ru: it[1] })));
+
+// The situation chosen last stays chosen while the page is open.
+let phrasebookCat = 0;
+
 function Phrasebook({ st, update, go }) {
-  const [cat, setCat] = useState(0);
+  const [cat, setCatState] = useState(phrasebookCat);
+  const setCat = (i) => { phrasebookCat = i; setCatState(i); };
   const [q, setQ] = useState('');
   const v = varsOf(st);
-  const all = PHRASEBOOK.flatMap((c) => c.items.map((it, i) => ({ id: `pb.${c.id}${i}`, kk: it[0], ru: it[1] })));
+  const all = PHRASEBOOK.flatMap((c) => situationItems(c, v));
   const query = loose(q);
-  let items = all.filter((x) => x.id.startsWith(`pb.${PHRASEBOOK[cat].id}`));
+  const situation = PHRASEBOOK[cat] || PHRASEBOOK[0];
+  let items = situationItems(situation, v);
+  // A situation of the course leads to its topic: its first lessons are open at any time.
+  const ti = situation.topic ? PLAYABLE.findIndex((t) => t.id === situation.topic) : -1;
+  const topic = ti >= 0 ? PLAYABLE[ti] : null;
   if (query) {
     // Phrases of the lessons are found too, with their level; a phrase met twice is listed once.
     const course = Object.keys(PHRASES).filter((id) => PHRASE_LEVEL[id])
@@ -3189,6 +3223,11 @@ function Phrasebook({ st, update, go }) {
         <button type="button" class=${'mem-btn' + (st.mem[x.id] ? ' on' : '')} aria-pressed=${!!st.mem[x.id]}
           aria-label=${st.mem[x.id] ? 'Убрать из памяти' : 'Добавить в память'} onClick=${() => toggle(x.id)}><${Icon} name="ornament" size=${22} /></button>
       </div>`) : html`<span class="muted sm">Такой фразы пока нет.</span>`}</div>
+      ${!query && topic ? html`<button type="button" class="rules-link pb-topic" onClick=${() => go('topic', { ti, back: 'phrasebook' })}>
+        <${Avatar} who=${topic.who} size=${40} />
+        <span class="grow"><b>Урок «${topic.title}»</b><span class="muted sm">${PEOPLE[topic.who].name} · ${topic.level} · первые уроки открыты сразу</span></span>
+        <${Icon} name="next" size=${20} stroke=${2.2} />
+      </button>` : null}
       <button type="button" class="rules-link" onClick=${() => go('rules', { back: 'phrasebook' })}>
         <span class="rl-ic"><${Icon} name="book" size=${20} /></span>
         <span class="grow"><b>Как устроен казахский</b><span class="muted sm">15 коротких правил · по желанию</span></span>
@@ -3790,7 +3829,8 @@ function routeAfterStart(st) {
 function upRoute(route, st) {
   const start = st.profile.mode === 'baby' ? 'baby' : 'home';
   switch (route.name) {
-    case 'topic': case 'test': return { name: 'home' };
+    case 'topic': return { name: route.back || 'home' };
+    case 'test': return { name: 'home' };
     case 'review': return { name: route.back || 'home' };
     case 'conv': return { name: 'topic', ti: route.ti };
     case 'race': return route.ti != null ? { name: 'topic', ti: route.ti } : { name: 'home' };
@@ -3888,7 +3928,7 @@ function App() {
       screen = html`<${TestScreen} key=${`test-${route.id}-${route.k || 0}`} st=${st} update=${update} go=${go} id=${route.id} />`;
       break;
     case 'topic':
-      screen = html`<${TopicScreen} st=${st} ti=${route.ti} go=${go} />`;
+      screen = html`<${TopicScreen} st=${st} ti=${route.ti} go=${go} back=${route.back} />`;
       break;
     case 'conv':
       screen = html`<${ConvScreen} key=${`${route.ti}-${route.ci}-${route.k || 0}`} st=${st} update=${update} ti=${route.ti} ci=${route.ci} go=${go} />`;

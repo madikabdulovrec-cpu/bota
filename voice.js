@@ -1,9 +1,12 @@
-// Kazakh speech. First choice: recorded lines — audio files made in advance with Piper and the
-// ISSAI KazakhTTS2 voice (CC BY 4.0), which any phone can play (mvp/audio/, listed in
-// audio-index.js, made by tools/audio.mjs and tools/audio_synth.py). Second: the browser's own
+// Kazakh speech. First choice: recorded lines — audio files made in advance, which any phone can
+// play (mvp/audio/, listed in audio-index.js, made by tools/audio.mjs with the Microsoft Azure voices
+// Aigul and Daulet: a man in the lessons speaks with the man's voice). Second: the browser's own
 // Kazakh voice (Web Speech; Edge ships online voices Aigul and Daulet). A line with the learner's
 // name has no file, and most browsers have no Kazakh voice, so every caller must work without sound.
-import { AUDIO } from './audio-index.js?v=e1f9ffb';
+// A namespace import: an older audio-index.js without AUDIO_CREDIT must not stop the app.
+import * as INDEX from './audio-index.js?v=e7a2bae';
+
+const AUDIO = INDEX.AUDIO || new Set();
 
 let voice = null;
 const listeners = new Set();
@@ -141,8 +144,10 @@ export function init(onChange) {
 export const available = () => !!voice || filesOk;
 // This very text can sound: it has a recording, or the browser has a Kazakh voice.
 export const canSay = (text) => !!text && (!!voice || !!fileFor(text));
-// Recorded lines are playing here (the voice of ISSAI KazakhTTS2), not only the browser's voice.
+// Recorded lines are playing here, not only the browser's voice.
 export const recorded = () => filesOk;
+// Who made the recorded voice, for the profile: «синтез речи Microsoft Azure, голоса …».
+export const credit = () => (filesOk ? INDEX.AUDIO_CREDIT || '' : '');
 export const name = () => (voice ? voice.name.replace(/^Microsoft\s+/i, '').replace(/\s*-\s*Kazakh.*$/i, '') : '');
 
 // While the microphone records, every sound waits: it would be recorded as the learner's voice.

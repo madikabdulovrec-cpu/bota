@@ -1,11 +1,28 @@
 // Бота — MVP: conversational Kazakh for Russian speakers.
 import { html, render, useState, useEffect, useRef, useMemo, useErrorBoundary } from 'https://cdn.jsdelivr.net/npm/htm@3.1.1/preact/standalone.module.js';
-import { KINDS, CITIES, JOBS, HOBBIES, CHOICES, PEOPLE, PHRASES, TOPICS, LEVELS, RULES, RESCUE, PHRASEBOOK, BABY, BABY_GROUPS, BABY_AGES, BABY_GOAL, FACTS, RACE_APART } from './content.js?v=e1f9ffb';
-import * as fsrs from './fsrs.js?v=e1f9ffb';
-import * as voice from './voice.js?v=e1f9ffb';
-import * as mic from './mic.js?v=e1f9ffb';
-import { KZ_LETTERS, checkTyped, normType, plain } from './typing.js?v=e1f9ffb';
-import { Icon, PlayGlyph, SpeakerGlyph, Sun, Logo, Bota, Avatar, Yurt, Photo, Shanyrak, Wave } from './art.js?v=e1f9ffb';
+import { KINDS, CITIES, JOBS, HOBBIES, CHOICES, PEOPLE, PHRASES, TOPICS, LEVELS, RULES, RESCUE, PHRASEBOOK, BABY, BABY_GROUPS, BABY_AGES, BABY_GOAL, FACTS, RACE_APART } from './content.js?v=e7a2bae';
+import * as fsrs from './fsrs.js?v=e7a2bae';
+import * as voice from './voice.js?v=e7a2bae';
+import * as mic from './mic.js?v=e7a2bae';
+import * as stats from './stats.js?v=e7a2bae';
+import { KZ_LETTERS, checkTyped, normType, plain } from './typing.js?v=e7a2bae';
+import { Icon, PlayGlyph, SpeakerGlyph, Sun, Logo, Bota, Avatar, Yurt, Photo, Shanyrak, Wave } from './art.js?v=e7a2bae';
+
+// The version of the app: tools/site.mjs gives every module address ?v=<commit>.
+const VERSION = new URL(import.meta.url).searchParams.get('v') || 'dev';
+
+// Errors of the app go to the statistics (where they are on): the message and the place, nothing
+// else; the same message at most three times a visit.
+const errorsSeen = new Map();
+function trackError(m, f, l) {
+  const key = `${m}|${f}`;
+  const n = errorsSeen.get(key) || 0;
+  if (n >= 3) return;
+  errorsSeen.set(key, n + 1);
+  stats.track('error', { m: String(m || '').slice(0, 160), f: String(f || '').split('/').pop().split('?')[0].slice(0, 40), l: l || 0 });
+}
+window.addEventListener('error', (e) => trackError(e.message, e.filename, e.lineno));
+window.addEventListener('unhandledrejection', (e) => trackError((e.reason && e.reason.message) || e.reason, 'promise'));
 
 /* ---------- storage: progress lives in this browser only ---------- */
 
@@ -27,11 +44,14 @@ function fresh() {
     race: { best: {}, miss: {}, runs: 0, rival: '' },
     // trAuto: translations under every line from the start; otherwise a tap on a line shows its own.
     // mic: «Скажи вслух» records the phrase with the microphone where the browser allows it.
-    settings: { voice: true, trAuto: false, mic: true },
+    // stats: the learner agreed to the anonymous statistics of the pilot (stats.js).
+    settings: { voice: true, trAuto: false, mic: true, stats: false },
     // fact: the key of the last fact of the day shown (its date this year); install: 'never' once the
     // learner turned down «Поставь Боту на экран»; persist: what the browser said to keeping storage;
-    // remind: the time of the daily reminder the learner put into the phone's calendar.
-    seen: { fact: '', noVoice: false, trTap: false, install: '', persist: '', remind: '' },
+    // remind: the time of the daily reminder the learner put into the phone's calendar; stats: 'asked'
+    // once the learner answered about the statistics; survey3, survey14: 'done' or 'skip' for the
+    // short questions of the pilot.
+    seen: { fact: '', noVoice: false, trTap: false, install: '', persist: '', remind: '', stats: '', survey3: '', survey14: '' },
   };
 }
 
@@ -158,7 +178,7 @@ let installPrompt = null;
 const installListeners = new Set();
 const installChanged = () => installListeners.forEach((fn) => fn());
 window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installPrompt = e; installChanged(); });
-window.addEventListener('appinstalled', () => { installPrompt = null; installChanged(); });
+window.addEventListener('appinstalled', () => { installPrompt = null; installChanged(); stats.track('install'); });
 
 function registerWorker() {
   if (!SITE_BUILD || !('serviceWorker' in navigator)) return;
@@ -316,9 +336,12 @@ function RemindSheet({ was, onClose, onSet }) {
   useSheet(box, onClose);
   const ios = installHow() === 'ios';
   // The link must still be on the page when the browser follows it: the sheet closes a moment later.
-  const chosen = () => setTimeout(() => onSet(time), 300);
-  const file = { href: remindFile(time), download: ios ? null : `bota-${time.replace(':', '')}.ics` };
-  const google = { href: remindGoogle(time), target: '_blank', rel: 'noopener' };
+  const chosen = (via) => {
+    stats.track('remind', { time, via });
+    setTimeout(() => onSet(time), 300);
+  };
+  const file = { href: remindFile(time), download: ios ? null : `bota-${time.replace(':', '')}.ics`, onClick: () => chosen('ics') };
+  const google = { href: remindGoogle(time), target: '_blank', rel: 'noopener', onClick: () => chosen('google') };
   const [main, other] = ios ? [file, google] : [google, file];
   return html`<div class="sheet-back" onClick=${onClose}>
     <div class="sheet pad" ref=${box} role="dialog" aria-modal="true" aria-label="Напоминать каждый день" onClick=${(e) => e.stopPropagation()}>
@@ -327,8 +350,8 @@ function RemindSheet({ was, onClose, onSet }) {
       <p class="muted sm">В календарь телефона добавится событие на каждый день — календарь и напомнит.${was ? ' Прежнее напоминание останется: его можно удалить в календаре.' : ''}</p>
       <div class="age-chips" role="group" aria-label="Время напоминания">${REMIND_TIMES.map((t) => html`
         <button type="button" class=${'chip-btn' + (time === t ? ' sel' : '')} aria-pressed=${time === t} onClick=${() => setTime(t)}>${t}</button>`)}</div>
-      <a class="btn btn-primary btn-block" ...${main} onClick=${chosen}><${Icon} name="calendar" size=${20} /> Добавить в календарь</a>
-      <span class="done-links"><a class="link-btn" ...${other} onClick=${chosen}>${ios ? 'Google Календарь' : 'Файл для календаря'}</a>
+      <a class="btn btn-primary btn-block" ...${main}><${Icon} name="calendar" size=${20} /> Добавить в календарь</a>
+      <span class="done-links"><a class="link-btn" ...${other}>${ios ? 'Google Календарь' : 'Файл для календаря'}</a>
         <span aria-hidden="true">·</span><button type="button" class="link-btn" onClick=${onClose}>Не сейчас</button></span>
     </div>
   </div>`;
@@ -341,6 +364,158 @@ function RemindRow({ st, update }) {
   return html`<button type="button" class="m-rule race-open" onClick=${() => setOpen(true)}>
       <${Icon} name="calendar" size=${18} /> Напоминать каждый день</button>
     ${open ? html`<${RemindSheet} onClose=${() => setOpen(false)} onSet=${(time) => { update((d) => { d.seen.remind = time; }); setOpen(false); }} />` : null}`;
+}
+
+/* ---------- the pilot: anonymous statistics, messages to the team, two short questions ---------- */
+
+// All of it appears only where the page names an address for the statistics (stats.ready()): in the
+// app by link once the pilot's server runs; never in the claude.ai artifact.
+const STATS_SENT = [
+  'какие уроки начаты, пройдены или брошены — и на каком шаге',
+  'сколько было повторений, заездов бәйге и фраз «Малышу»',
+  'получилась ли запись голоса — без самой записи',
+  'ошибки приложения',
+  'случайный номер установки, вид телефона и версия приложения',
+];
+
+// What the statistics send and what not; with ask — to agree or refuse.
+function StatsSheet({ ask, onAnswer, onClose }) {
+  const box = useRef(null);
+  useSheet(box, onClose);
+  return html`<div class="sheet-back" onClick=${onClose}>
+    <div class="sheet pad" ref=${box} role="dialog" aria-modal="true" aria-label="Анонимная статистика" onClick=${(e) => e.stopPropagation()}>
+      <span class="sheet-grip" aria-hidden="true"></span>
+      <h2 class="h2" tabindex="-1">Анонимная статистика</h2>
+      <p class="sm">Она показывает команде Боты, где ученикам трудно и что помогает. Отправляется:</p>
+      <ul class="install-steps sm-steps">${STATS_SENT.map((x) => html`<li>${x}</li>`)}</ul>
+      <p class="muted sm">Не отправляются имя, имя малыша, записи голоса и ваши ответы. Выключить можно в «Профиле».${stats.number()
+        ? ` Номер этой установки — ${stats.number()}: по нему можно попросить удалить ваши данные через «Написать нам».` : ''}</p>
+      ${ask ? html`<button type="button" class="btn btn-primary btn-block" onClick=${() => onAnswer(true)}>Помогать</button>
+        <span class="done-links"><button type="button" class="link-btn" onClick=${() => onAnswer(false)}>Не отправлять</button></span>`
+        : html`<button type="button" class="btn btn-primary btn-block" onClick=${onClose}>Понятно</button>`}
+    </div>
+  </div>`;
+}
+
+// Learners who met Bota before the statistics are asked once, in a row on the main screen.
+function StatsRow({ st, update }) {
+  const [open, setOpen] = useState(false);
+  if (!stats.ready() || !st.profile.onboarded || st.seen.stats === 'asked') return null;
+  const answer = (on) => {
+    update((d) => { d.settings.stats = on; d.seen.stats = 'asked'; });
+    setOpen(false);
+  };
+  return html`<button type="button" class="mem-row" onClick=${() => setOpen(true)}>
+      <span class="mem-ic race-ic"><${Icon} name="chat" size=${22} /></span>
+      <span class="grow">Помогите сделать Боту лучше: анонимная статистика пилота</span>
+      <${Icon} name="next" size=${18} stroke=${2.4} /></button>
+    ${open ? html`<${StatsSheet} ask onAnswer=${answer} onClose=${() => setOpen(false)} />` : null}`;
+}
+
+// A message to the team: an inaccurate phrase, picked from those of the lesson or the ritual, or a
+// free message. It leaves only on «Отправить», without the name.
+function FeedbackSheet({ phrases, where, onClose }) {
+  const [pick, setPick] = useState(phrases && phrases.length === 1 ? 0 : -1);
+  const [text, setText] = useState('');
+  const [state, setState] = useState('');
+  const box = useRef(null);
+  useSheet(box, onClose);
+  const title = phrases ? 'Неточность во фразе' : 'Написать нам';
+  const can = (phrases ? pick >= 0 : !!text.trim()) && state !== 'sending';
+  const send = async () => {
+    if (!can) return;
+    setState('sending');
+    setState(await stats.message('feedback', { where, phrase: phrases && pick >= 0 ? phrases[pick] : '', text: text.trim().slice(0, 1000) }));
+  };
+  const done = state === 'sent' || state === 'queued';
+  return html`<div class="sheet-back" onClick=${onClose}>
+    <div class="sheet pad" ref=${box} role="dialog" aria-modal="true" aria-label=${title} onClick=${(e) => e.stopPropagation()}>
+      <span class="sheet-grip" aria-hidden="true"></span>
+      ${done ? html`<h2 class="h2" tabindex="-1">Спасибо!</h2>
+        <p class="sm" role="status">${state === 'sent' ? 'Получили — посмотрим и поправим.' : 'Отправим, как только появится интернет.'}</p>
+        <button type="button" class="btn btn-primary btn-block" onClick=${onClose}>Закрыть</button>`
+      : html`<h2 class="h2" tabindex="-1">${title}</h2>
+        ${phrases ? html`<span class="eyebrow">В КАКОЙ ФРАЗЕ?</span>
+          <div class="opts">${phrases.map((kk, i) => html`<button type="button" class=${'opt kk' + (pick === i ? ' sel' : '')} aria-pressed=${pick === i}
+            onClick=${() => setPick(i)}><span lang="kk">${kk}</span></button>`)}</div>` : null}
+        <label class="sr" for="fb-text">${phrases ? 'Что не так' : 'Сообщение'}</label>
+        <textarea id="fb-text" class="field area" rows="3" maxlength="1000" value=${text} onInput=${(e) => setText(e.target.value)}
+          placeholder=${phrases ? 'Как правильно или что не так — по желанию' : 'Что понравилось, что мешает, чего не хватает'}></textarea>
+        <span class="muted sm">Сообщение уходит без имени. Не пишите телефон и другие личные данные.</span>
+        <button type="button" class="btn btn-primary btn-block" disabled=${!can} onClick=${send}>${state === 'sending' ? 'Отправляю…' : 'Отправить'}</button>
+        ${state === 'failed' ? html`<span class="say-status" role="status">Не получилось отправить — проверь интернет и попробуй ещё раз.</span>` : null}`}
+    </div>
+  </div>`;
+}
+
+// «Нашли неточность во фразе?» under a lesson or a ritual: one line, the sheet on a tap.
+function ReportLink({ phrases, where }) {
+  const [open, setOpen] = useState(false);
+  if (!stats.ready() || !phrases.length) return null;
+  return html`<button type="button" class="link-btn sm report-link" onClick=${() => setOpen(true)}>Нашли неточность во фразе?</button>
+    ${open ? html`<${FeedbackSheet} phrases=${phrases} where=${where} onClose=${() => setOpen(false)} />` : null}`;
+}
+
+// Two short questions: on the third day after the first lesson and on the fourteenth.
+const SURVEY_3 = ['Нравится, буду заниматься', 'Нравится, но не хватает времени', 'Сложно', 'Не то, что мне нужно'];
+function surveyDue(st) {
+  if (!stats.ready() || !st.profile.onboarded) return 0;
+  const first = Object.keys(st.days).sort()[0];
+  if (!first) return 0;
+  const [y, m, d] = first.split('-').map(Number);
+  const now = new Date();
+  const n = Math.round((new Date(now.getFullYear(), now.getMonth(), now.getDate()) - new Date(y, m - 1, d)) / fsrs.DAY) + 1;
+  if (n >= 14) return st.seen.survey14 ? 0 : 14;
+  if (n >= 3) return st.seen.survey3 ? 0 : 3;
+  return 0;
+}
+
+function SurveySheet({ n, onDone, onClose }) {
+  const [a, setA] = useState(-1);
+  const [text, setText] = useState('');
+  const [state, setState] = useState('');
+  const box = useRef(null);
+  useSheet(box, onClose);
+  const send = async () => {
+    if (a < 0 || state === 'sending') return;
+    setState('sending');
+    const res = await stats.message('survey', { n, a, text: text.trim().slice(0, 1000) });
+    if (res === 'failed') setState('failed'); else onDone('done');
+  };
+  const title = n === 3 ? 'Как вам Бота?' : 'Две недели с Ботой';
+  return html`<div class="sheet-back" onClick=${onClose}>
+    <div class="sheet pad" ref=${box} role="dialog" aria-modal="true" aria-label=${title} onClick=${(e) => e.stopPropagation()}>
+      <span class="sheet-grip" aria-hidden="true"></span>
+      <h2 class="h2" tabindex="-1">${title}</h2>
+      ${n === 3
+        ? html`<span class="sm">Три дня позади. Как вам занятия?</span>
+          <div class="opts">${SURVEY_3.map((label, i) => html`<button type="button" class=${'opt' + (a === i ? ' sel' : '')} aria-pressed=${a === i} onClick=${() => setA(i)}><span>${label}</span></button>`)}</div>`
+        : html`<span class="sm">Насколько вероятно, что вы посоветуете Боту знакомым? 0 — точно нет, 10 — точно да.</span>
+          <div class="scale" role="group" aria-label="Оценка от 0 до 10">${Array.from({ length: 11 }, (_, i) => html`
+            <button type="button" class=${'chip-btn' + (a === i ? ' sel' : '')} aria-pressed=${a === i} onClick=${() => setA(i)}>${i}</button>`)}</div>`}
+      <label class="sr" for="sv-text">Комментарий</label>
+      <textarea id="sv-text" class="field area" rows="2" maxlength="1000" value=${text} onInput=${(e) => setText(e.target.value)}
+        placeholder=${n === 3 ? 'Что мешает или чего не хватает — по желанию' : 'Что вы теперь можете сказать по-казахски без подсказки?'}></textarea>
+      <button type="button" class="btn btn-primary btn-block" disabled=${a < 0 || state === 'sending'} onClick=${send}>Отправить</button>
+      ${state === 'failed' ? html`<span class="say-status" role="status">Не получилось отправить — проверь интернет и попробуй ещё раз.</span>` : null}
+      <span class="done-links"><button type="button" class="link-btn" onClick=${() => onDone('skip')}>Пропустить</button></span>
+    </div>
+  </div>`;
+}
+
+function SurveyRow({ st, update }) {
+  const [open, setOpen] = useState(false);
+  const n = surveyDue(st);
+  if (!n) return null;
+  const done = (res) => {
+    update((d) => { d.seen[`survey${n}`] = res; });
+    setOpen(false);
+  };
+  return html`<button type="button" class="mem-row" onClick=${() => setOpen(true)}>
+      <span class="mem-ic race-ic"><${Icon} name="chat" size=${22} /></span>
+      <span class="grow">${n === 3 ? 'Вопрос на 10 секунд: как вам Бота?' : 'Две недели с Ботой: пара вопросов'}</span>
+      <${Icon} name="next" size=${18} stroke=${2.4} /></button>
+    ${open ? html`<${SurveySheet} n=${n} onDone=${done} onClose=${() => setOpen(false)} />` : null}`;
 }
 
 /* ---------- dates and words ---------- */
@@ -577,6 +752,9 @@ function Onboard({ st, update, done }) {
   const [name, setName] = useState(st.profile.name || '');
   const [mode, setMode] = useState(st.profile.mode || 'talk');
   const [minutes, setMinutes] = useState(st.profile.minutes || 10);
+  // The pilot's anonymous statistics: asked on the first step, so that the rest of the way is seen too.
+  const [share, setShare] = useState(true);
+  const [statsInfo, setStatsInfo] = useState(false);
   const scroller = useRef(null);
   const lastTap = useRef(0);
   const clean = cap(name.trim().replace(/\s+/g, ' ').slice(0, 24));
@@ -597,7 +775,17 @@ function Onboard({ st, update, done }) {
   const finish = () => {
     if (!settled()) return;
     update((d) => { d.profile = { ...d.profile, name: clean, mode, minutes, onboarded: true }; });
+    stats.track('onboard', { mode, minutes });
     done(mode);
+  };
+  const nameDone = () => {
+    if (!clean) return;
+    if (stats.ready()) {
+      update((d) => { d.settings.stats = share; d.seen.stats = 'asked'; });
+      stats.setConsent(share);
+      stats.track('onboard_name');
+    }
+    toStep(1);
   };
 
   const modes = [
@@ -609,10 +797,13 @@ function Onboard({ st, update, done }) {
   // just says it. English and Chinese will bring the choice back as the first step.
   let panel;
   if (step === 0) {
-    panel = html`<form class="panel-in" onSubmit=${(e) => { e.preventDefault(); if (clean) toStep(1); }}>
+    panel = html`<form class="panel-in" onSubmit=${(e) => { e.preventDefault(); nameDone(); }}>
       <label class="field-label" for="ob-name">Твоё имя</label>
       <input id="ob-name" class="field" type="text" autocomplete="given-name" maxlength="24" placeholder="Например, Мадияр"
         value=${name} onInput=${(e) => setName(e.target.value)} />
+      ${stats.ready() ? html`<div class="consent">
+        <label><input type="checkbox" checked=${share} onChange=${(e) => setShare(e.target.checked)} /> Анонимная статистика — без имени и голоса</label>
+        <button type="button" class="link-btn sm" onClick=${() => setStatsInfo(true)}>Что это?</button></div>` : null}
       <button type="submit" class="btn btn-primary btn-block" disabled=${!clean}>Дальше</button>
     </form>`;
   } else if (step === 1) {
@@ -620,7 +811,7 @@ function Onboard({ st, update, done }) {
       <div class="opts">${modes.map(([id, title, sub]) => html`
         <button type="button" class=${'opt mode' + (mode === id ? ' sel' : '')} aria-pressed=${mode === id} onClick=${() => setMode(id)}>
           <span>${title}</span><small>${sub}</small></button>`)}</div>
-      <button type="button" class="btn btn-primary btn-block" onClick=${() => toStep(2)}>Дальше</button>
+      <button type="button" class="btn btn-primary btn-block" onClick=${() => { stats.track('onboard_mode', { mode }); toStep(2); }}>Дальше</button>
     </div>`;
   } else {
     panel = html`<div class="panel-in">
@@ -648,6 +839,7 @@ function Onboard({ st, update, done }) {
       </div>
     </div>
     <div class="composer pad">${panel}</div>
+    ${statsInfo ? html`<${StatsSheet} onClose=${() => setStatsInfo(false)} />` : null}
   </main>`;
 }
 
@@ -819,6 +1011,8 @@ function Home({ st, go, update }) {
       <${NextCard} st=${st} go=${go} level=${level} setLevel=${setLevel} />
       ${reviewFirst(st) && nextUp(st, level) ? null : html`<${MemRow} st=${st} go=${go} />`}
       <${RaceRow} st=${st} go=${go} />
+      <${SurveyRow} st=${st} update=${update} />
+      <${StatsRow} st=${st} update=${update} />
       <${InstallRow} st=${st} onOpen=${install} />
     </div>
     <${TabBar} tab="home" go=${go} st=${st} />
@@ -1146,6 +1340,7 @@ function SayPanel({ step, v, tr, st, recall, paused, onPause, onResume, onDone, 
       if (!res.heard) {
         drop();
         reveal();
+        stats.track('mic', { r: 'quiet', recall: !!recall });
         setStatus('Не слышно. Поднеси телефон ближе и скажи фразу ещё раз.');
         onHint('Тебя не слышно. Поднеси телефон ближе и скажи фразу ещё раз.');
         return;
@@ -1155,10 +1350,12 @@ function SayPanel({ step, v, tr, st, recall, paused, onPause, onResume, onDone, 
         asked.current = true;
         drop();
         reveal();
+        stats.track('mic', { r: 'short', recall: !!recall });
         setStatus('Похоже, это не вся фраза. Скажи её целиком.');
         onHint('Похоже, это не вся фраза. Скажи её целиком.');
         return;
       }
+      stats.track('mic', { r: 'ok', recall: !!recall, ms: Math.round(res.ms || 0) });
       onDone(res);
     }, (e) => {
       settle();
@@ -1167,6 +1364,7 @@ function SayPanel({ step, v, tr, st, recall, paused, onPause, onResume, onDone, 
       let code = e && e.code;
       // In a frame (the claude.ai artifact) Safari refuses at once: the frame, not the learner, says no.
       if (code === 'denied' && window.self !== window.top) code = 'blocked';
+      stats.track('mic', { r: MIC_NOTE[code] ? code : 'error', recall: !!recall });
       if (MIC_NOTE[code]) {
         micTrouble = code;
         micNoted.add(code);
@@ -1361,7 +1559,7 @@ function Tomorrow({ st }) {
   return html`<span class="mem-note"><${Icon} name="ornament" size=${20} />Завтра: ${parts.join(' · ')}</span>`;
 }
 
-function DonePanel({ st, update, conv, ti, ci, result, v, go }) {
+function DonePanel({ st, update, conv, ti, ci, result, v, go, said }) {
   const streak = streakOf(st.days);
   // The third lesson of a topic, done for the first time, opens the race of its words.
   const topic = PLAYABLE[ti];
@@ -1388,6 +1586,7 @@ function DonePanel({ st, update, conv, ti, ci, result, v, go }) {
       <${RemindRow} st=${st} update=${update} />
       <button type="button" class="btn btn-primary btn-block" onClick=${() => go('home')}>Готово на сегодня</button>
       <span class="done-links">${nx ? html`<button type="button" class="link-btn" onClick=${toNext}>Ещё урок</button><span aria-hidden="true">·</span>` : null}${again}</span>
+      <${ReportLink} phrases=${said || []} where=${`lesson:${conv.id}`} />
     </div>`;
   }
   return html`<div class="panel-in done">
@@ -1402,6 +1601,7 @@ function DonePanel({ st, update, conv, ti, ci, result, v, go }) {
       ${nx ? html`<button type="button" class="link-btn" onClick=${() => go('home')}>В «Мой круг»</button><span aria-hidden="true">·</span>` : null}
       ${again}
     </span>
+    <${ReportLink} phrases=${said || []} where=${`lesson:${conv.id}`} />
   </div>`;
 }
 
@@ -1438,6 +1638,22 @@ function ConvScreen({ st, update, ti, ci, go }) {
   const turns = steps.filter(isTurn).length;
   const turnsDone = steps.slice(0, pos).filter(isTurn).length;
 
+  // For the pilot's statistics: the lesson started, finished, or was left at its step (turnsDone);
+  // a page hidden mid-lesson says where it stopped, in case it never comes back.
+  const track = useRef({ step: 0, done: false, t0: Date.now() });
+  track.current.step = turnsDone;
+  useEffect(() => {
+    stats.track('lesson', { id: conv.id, kind: conv.kind, again: !!stRef.current.done[conv.id] });
+    const onHide = () => {
+      if (document.visibilityState === 'hidden' && !track.current.done) stats.track('lesson_pause', { id: conv.id, kind: conv.kind, step: track.current.step, of: turns });
+    };
+    document.addEventListener('visibilitychange', onHide);
+    return () => {
+      document.removeEventListener('visibilitychange', onHide);
+      if (!track.current.done) stats.track('lesson_quit', { id: conv.id, kind: conv.kind, step: track.current.step, of: turns });
+    };
+  }, []);
+
   function finish() {
     // latest(): a phrase another tab put into memory meanwhile keeps its schedule.
     const cur = latest(stRef.current);
@@ -1452,6 +1668,8 @@ function ConvScreen({ st, update, ti, ci, go }) {
       d.days[dayKey()] = true;
       added.forEach((id) => { if (!d.mem[id]) d.mem[id] = fsrs.review(null, 2, now); });
     });
+    track.current.done = true;
+    stats.track('lesson_done', { id: conv.id, kind: conv.kind, first, closed, s: Math.round((now - track.current.t0) / 1000), typed: typed.current.n, clean: typed.current.clean });
     setResult({ added: added.length, typed: typed.current.n, clean: typed.current.clean, first, closed });
   }
 
@@ -1537,7 +1755,9 @@ function ConvScreen({ st, update, ti, ci, go }) {
 
   let panel = null;
   if (result) {
-    panel = html`<${DonePanel} st=${st} update=${update} conv=${conv} ti=${ti} ci=${ci} result=${result} v=${v} go=${go} />`;
+    // The Kazakh lines of this lesson, for «Нашли неточность во фразе?».
+    const said = [...new Set(log.filter((m) => m.kk).map((m) => m.kk))];
+    panel = html`<${DonePanel} st=${st} update=${update} conv=${conv} ti=${ti} ci=${ci} result=${result} v=${v} go=${go} said=${said} />`;
   } else if (step && isTurn(step) && !typing) {
     if (step.check) panel = html`<${CheckPanel} key=${pos} step=${step} listen=${conv.kind === 'listen'} auto=${st.settings.voice} onHint=${hint} onDone=${() => advance([])} />`;
     else if (step.pick) {
@@ -1708,6 +1928,8 @@ function Review({ st, update, go }) {
   const [closed, setClosed] = useState(false);
   const lastTap = useRef(0);
   const bottom = useRef(null);
+  // For the statistics: how many cards got each grade, and how many were words of «Бәйге».
+  const grades = useRef([0, 0, 0, 0, 0]);
   const id = queue[i];
   const v = varsOf(st);
   // Keyboard users stay on the buttons of the moment: «Показать ответ», then the grades. Not on the
@@ -1777,7 +1999,14 @@ function Review({ st, update, go }) {
     });
     // «С трудом» is remembered too: only «Не вспомнил(а)» is a lapse for FSRS.
     if (g >= 2) setOkCount((n) => n + 1);
-    if (last && before < goalOf(cur) && before + 1 >= goalOf(cur)) setClosed(true);
+    const closes = last && before < goalOf(cur) && before + 1 >= goalOf(cur);
+    if (closes) setClosed(true);
+    grades.current[g - 1] += 1;
+    if (isWord(id)) grades.current[4] += 1;
+    if (last) {
+      const [g1, g2, g3, g4, words] = grades.current;
+      stats.track('review_done', { n: queue.length, words, g1, g2, g3, g4, closed: closes });
+    }
     voice.stop();
     setOpen(false);
     setI(i + 1);
@@ -2030,6 +2259,7 @@ function RaceScreen({ st, update, go, ti, quick, setup, duel: duelIn }) {
       const [a, b] = runs;
       setSaid(a.ms === b.ms ? 'Ничья.' : `${duel.names[a.ms < b.ms ? 0 : 1]} быстрее на ${raceTime(Math.abs(a.ms - b.ms))}.`);
       update((d) => { d.days[dayKey()] = true; });
+      stats.track('duel_done', { set: topic ? 'topic' : 'mix' });
       setDuel({ ...duel, runs });
       setPhase('end');
       return;
@@ -2050,6 +2280,8 @@ function RaceScreen({ st, update, go, ti, quick, setup, duel: duelIn }) {
       });
       d.days[dayKey()] = true;
     });
+    const won = !paused && tenths(ms) < tenths(record || total * BOTA_PACE);
+    stats.track('race_done', { set: topic ? 'topic' : 'mix', ms, miss: miss.size, won, paused, first: !record });
     setResult({ ms, prev: record, fines: fines.current, missed: [...miss], paused });
     setPhase('end');
   };
@@ -2413,6 +2645,7 @@ function Baby({ st, update, go }) {
           </button>`;
         })}</div>
       </section>`)}
+      ${st.profile.mode === 'baby' ? html`<${SurveyRow} st=${st} update=${update} /><${StatsRow} st=${st} update=${update} />` : null}
       <${InstallRow} st=${st} onOpen=${install} />
       <p class="baby-tip"><${Bota} size=${26} /><span>Говорите сами, своим голосом: малыш учится у живого человека, а не у экрана.</span></p>
     </div>
@@ -2439,10 +2672,12 @@ function BabyScenario({ st, update, go, id }) {
         return html`<div class="ph-row" key=${pid}>
           <${SpeakBtn} text=${kk} />
           <span class="grow"><b class="kk" lang="kk">${kk}</b><span class="muted sm">${ru}</span></span>
-          <button type="button" class=${'said-btn' + (on ? ' on' : '')} aria-pressed=${on} onClick=${() => toggleSaid(update, pid)}>${on ? 'Сказал(а) ✓' : 'Сказал(а)'}</button>
+          <button type="button" class=${'said-btn' + (on ? ' on' : '')} aria-pressed=${on}
+            onClick=${() => { toggleSaid(update, pid); if (!on) stats.track('baby_said', { r: s.id }); }}>${on ? 'Сказал(а) ✓' : 'Сказал(а)'}</button>
         </div>`;
       })}</div>
       <p class="muted sm">Отмечайте фразу, когда сказали её малышу: так видно, сколько казахского он слышит за неделю.</p>
+      <${ReportLink} phrases=${s.items.map(([kk]) => kk)} where=${`baby:${s.id}`} />
     </div>
     <div class="bottom pad"><button type="button" class="btn btn-primary btn-block" onClick=${() => go('babyScen', { id: next.id })}>Следующий ритуал: ${next.title.toLowerCase()}</button></div>
   </main>`;
@@ -2476,6 +2711,8 @@ function Profile({ st, update, go }) {
   const hasVoice = voice.available();
   const micUsable = mic.supported() && mic.allowed();
   const [remind, setRemind] = useState(false);
+  const [statsInfo, setStatsInfo] = useState(false);
+  const [writing, setWriting] = useState(false);
   // Moving the progress: a file saved here opens on another phone or in another browser.
   const fileInput = useRef(null);
   const [transfer, setTransfer] = useState('');
@@ -2577,6 +2814,14 @@ function Profile({ st, update, go }) {
           <span class="grow"><b>Режим «Малыш»</b><span class="muted sm">${st.profile.mode === 'baby' ? 'своя вкладка, приложение открывается с неё' : 'фразы для родителей — в «Разговорнике»'}</span></span>
           <${Toggle} on=${st.profile.mode === 'baby'} label="Режим «Малыш»" onChange=${(on) => update((d) => { d.profile.mode = on ? 'baby' : 'talk'; })} />
         </div>
+        ${stats.ready() ? html`<div class="set-row">
+          <span class="grow"><b>Анонимная статистика</b><span class="muted sm">помогает улучшать Боту · <button type="button" class="inline-link" onClick=${() => setStatsInfo(true)}>что отправляется</button></span></span>
+          <${Toggle} on=${st.settings.stats} label="Анонимная статистика" onChange=${(on) => update((d) => { d.settings.stats = on; d.seen.stats = 'asked'; })} />
+        </div>
+        <div class="set-row">
+          <span class="grow"><b>Написать нам</b><span class="muted sm">что понравилось, что мешает</span></span>
+          <button type="button" class="btn-chip" onClick=${() => setWriting(true)}>Написать</button>
+        </div>` : null}
         <div class="set-row"><span class="grow"><b>Язык объяснений</b><span class="muted sm">Русский · English и 中文 — скоро</span></span></div>
       </section>
       <section class="card transfer">
@@ -2596,11 +2841,13 @@ function Profile({ st, update, go }) {
           : html`<button type="button" class="btn-chip" onClick=${() => setConfirmReset(true)}>Сбросить прогресс</button>`}
       </section>
       <p class="muted sm foot">MVP 0.1 · фразы — черновик, их проверит носитель языка.${voice.recorded()
-        ? ' Озвучка: голос ISSAI KazakhTTS2 (CC BY 4.0), синтез Piper; ударение в записи может ошибаться.' : ''}</p>
+        ? ` Озвучка: ${voice.credit() || 'записанные фразы'}; ударение в записи может ошибаться.` : ''}</p>
     </div>
     <${TabBar} tab="profile" go=${go} st=${st} />
     ${remind ? html`<${RemindSheet} was=${st.seen.remind} onClose=${() => setRemind(false)}
       onSet=${(time) => { update((d) => { d.seen.remind = time; }); setRemind(false); }} />` : null}
+    ${statsInfo ? html`<${StatsSheet} onClose=${() => setStatsInfo(false)} />` : null}
+    ${writing ? html`<${FeedbackSheet} where="profile" onClose=${() => setWriting(false)} />` : null}
   </main>`;
 }
 
@@ -2659,6 +2906,12 @@ function App() {
   const [, setTick] = useState(0);
   const [storageNoted, setStorageNoted] = useState(false);
   useEffect(() => voice.init(() => setTick((x) => x + 1)), []);
+  // The pilot's statistics: set up once and the start of this visit counted; consent follows the setting.
+  useEffect(() => {
+    stats.setup({ consent: INITIAL.settings.stats === true, version: VERSION, standalone: standalone() });
+    stats.track('start', { screen: route.name, days: Object.keys(INITIAL.days).length, lessons: Object.keys(INITIAL.done).length });
+  }, []);
+  useEffect(() => { stats.setConsent(st.settings.stats === true); }, [st.settings.stats]);
   // On the site the browser is asked to keep the progress even when space runs short. It asks no
   // one: browsers grant it to an app put on the home screen, so each start asks again until then.
   useEffect(() => {
@@ -2740,6 +2993,7 @@ function App() {
 // A screen that fails to draw shows a way out instead of a blank page.
 function Safe({ children }) {
   const [error] = useErrorBoundary();
+  useEffect(() => { if (error) trackError(error.message || error, 'render'); }, [error]);
   if (!error) return children;
   const restart = () => {
     try {

@@ -242,11 +242,14 @@ button.vplay::after { content: ''; position: absolute; inset: -7px; }
 .opt.bad { border: 2px dashed var(--muted); color: var(--muted); }
 .opt.mode > span { font-size: 15.5px; font-weight: 800; }
 .build-row { display: flex; align-items: center; gap: 8px; }
-.build-field { flex: 1; min-width: 0; min-height: 56px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 5px; border: 1.5px solid var(--line); border-radius: 28px; background: var(--bg); }
+.build-field { position: relative; flex: 1; min-width: 0; min-height: 56px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 5px; border: 1.5px solid var(--line); border-radius: 28px; background: var(--bg); }
 .build-field.bad { border-style: dashed; border-color: var(--muted); }
 .placeholder { padding-left: 10px; }
 .wchip { min-height: 44px; padding: 0 15px; border-radius: 22px; border: 1.5px solid var(--line2); background: var(--card); color: var(--ink); font-size: 15.5px; font-weight: 600; cursor: pointer; }
-.wchip.in { border-color: transparent; background: var(--teal-soft); color: var(--teal-ink); font-weight: 700; }
+.wchip.in { border-color: transparent; background: var(--teal-soft); color: var(--teal-ink); font-weight: 700; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+/* A word of the answer being dragged: it follows the finger above the others, outlined in teal. */
+.wchip.in.drag { position: relative; z-index: 3; background: var(--card); box-shadow: 0 0 0 2px var(--teal), 0 6px 14px rgba(10, 40, 48, 0.18); cursor: grabbing; }
+.drag-hint { margin-top: -4px; }
 .bank { display: flex; flex-wrap: wrap; gap: 8px; min-height: 44px; }
 .send-round { flex-shrink: 0; width: 52px; height: 52px; border-radius: 50%; border: none; display: inline-flex; align-items: center; justify-content: center; background: var(--teal); color: var(--on-teal); cursor: pointer; }
 .send-round:disabled { background: var(--line); color: var(--dim); cursor: default; }
@@ -671,5 +674,5 @@ button.vplay::after { content: ''; position: absolute; inset: -7px; }
   }
   window.botaBoot = setTimeout(botaFail, 10000);
 </script>
-<script type="module" src="./app.js?v=629350d" onerror="botaFail()"></script>
+<script type="module" src="./app.js?v=d769f27" onerror="botaFail()"></script>
 </body></html>

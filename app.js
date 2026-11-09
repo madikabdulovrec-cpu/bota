@@ -1,13 +1,13 @@
 // Бота — MVP: conversational Kazakh for Russian speakers.
-import { html, render, useState, useEffect, useRef, useMemo, useErrorBoundary } from 'https://cdn.jsdelivr.net/npm/htm@3.1.1/preact/standalone.module.js';
-import { KINDS, CITIES, JOBS, HOBBIES, CHOICES, PEOPLE, PHRASES, TOPICS, LEVELS, RULES, RESCUE, PHRASEBOOK, BABY, BABY_GROUPS, BABY_AGES, BABY_GOAL, BABY_NOW, ENDEARMENTS, FACTS, RACE_APART } from './content.js?v=629350d';
-import * as fsrs from './fsrs.js?v=629350d';
-import * as voice from './voice.js?v=629350d';
-import * as mic from './mic.js?v=629350d';
-import * as stats from './stats.js?v=629350d';
-import { KZ_LETTERS, checkTyped, normType, plain, syllables, fillSlot } from './typing.js?v=629350d';
-import { CHECKS, BLOCK, SIZE, PLACE_ASK, PLACE_PASS, checkItems, placeItems, need, passes } from './exam.js?v=629350d';
-import { Icon, PlayGlyph, SpeakerGlyph, Sun, Logo, Bota, Avatar, Yurt, Photo, Shanyrak, Wave } from './art.js?v=629350d';
+import { html, render, useState, useEffect, useLayoutEffect, useRef, useMemo, useErrorBoundary } from 'https://cdn.jsdelivr.net/npm/htm@3.1.1/preact/standalone.module.js';
+import { KINDS, CITIES, JOBS, HOBBIES, CHOICES, PEOPLE, PHRASES, TOPICS, LEVELS, RULES, RESCUE, PHRASEBOOK, BABY, BABY_GROUPS, BABY_AGES, BABY_GOAL, BABY_NOW, ENDEARMENTS, FACTS, RACE_APART } from './content.js?v=d769f27';
+import * as fsrs from './fsrs.js?v=d769f27';
+import * as voice from './voice.js?v=d769f27';
+import * as mic from './mic.js?v=d769f27';
+import * as stats from './stats.js?v=d769f27';
+import { KZ_LETTERS, checkTyped, normType, plain, syllables, fillSlot } from './typing.js?v=d769f27';
+import { CHECKS, BLOCK, SIZE, PLACE_ASK, PLACE_PASS, checkItems, placeItems, need, passes } from './exam.js?v=d769f27';
+import { Icon, PlayGlyph, SpeakerGlyph, Sun, Logo, Bota, Avatar, Yurt, Photo, Shanyrak, Wave } from './art.js?v=d769f27';
 
 // The version of the app: tools/site.mjs gives every module address ?v=<commit>.
 const VERSION = new URL(import.meta.url).searchParams.get('v') || 'dev';
@@ -61,7 +61,8 @@ function fresh() {
     // remind: the time of the daily reminder the learner put into the phone's calendar; stats: 'asked'
     // once the learner answered about the statistics; survey3, survey14: 'done' or 'skip' for the
     // short questions of the pilot.
-    seen: { fact: '', noVoice: false, trTap: false, install: '', persist: '', remind: '', stats: '', survey3: '', survey14: '' },
+    // drag: the learner has moved a word of «Собери фразу» with the finger (the hint about it is gone).
+    seen: { fact: '', noVoice: false, trTap: false, drag: false, install: '', persist: '', remind: '', stats: '', survey3: '', survey14: '' },
   };
 }
 
@@ -1582,12 +1583,98 @@ function ChoosePanel({ step, v, tr, onDone }) {
   </div>`;
 }
 
-function BuildPanel({ step, v, tr, onDone, onHint, test }) {
+// «Собери фразу»: a tap on a word below puts it at the end of the answer, a tap on a word of the answer
+// takes it back. A word of the answer dragged with the finger goes to another place, the words around it
+// make room as it moves; the arrow keys do the same for a word in focus. The drag listens on the window:
+// the word keeps following the finger while the words around it move in the page.
+// dragHint: the line «Порядок слов можно менять пальцем» until the learner first moves a word so;
+// onDragged: that first time.
+function BuildPanel({ step, v, tr, onDone, onHint, test, dragHint, onDragged }) {
   const answer = step.build.map((w) => fill(w, v));
   const bank = useMemo(() => shuffle([...answer, ...step.extra].map((w, id) => ({ w, id }))), []);
   const [draft, setDraft] = useState([]);
   const [wrong, setWrong] = useState(false);
   const [missed, setMissed] = useState(false);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  const missedRef = useRef(missed);
+  missedRef.current = missed;
+  const onDraggedRef = useRef(onDragged);
+  onDraggedRef.current = onDragged;
+  const field = useRef(null);
+  // The word being dragged: its id and element, where the finger and the word started, how far the
+  // finger went; on — far enough to drag, not to tap.
+  const drag = useRef(null);
+  const [dragId, setDragId] = useState(null);
+  // A drag ends with a click on the word: that click must not take the word back.
+  const dragged = useRef(false);
+  const dnd = useMemo(() => {
+    // The dragged word stands where the finger is, wherever the words around it have put it now.
+    const place = () => {
+      const d = drag.current;
+      if (d && d.on) d.el.style.transform = `translate(${d.l + d.dx - d.el.offsetLeft}px, ${d.t + d.dy - d.el.offsetTop}px)`;
+    };
+    const move = (e) => {
+      const d = drag.current;
+      if (!d || e.pointerId !== d.pid) return;
+      d.dx = e.clientX - d.x;
+      d.dy = e.clientY - d.y;
+      if (!d.on) {
+        if (Math.hypot(d.dx, d.dy) < 8) return;
+        d.on = true;
+        dragged.current = true;
+        setDragId(d.id);
+      }
+      if (e.cancelable) e.preventDefault();
+      // Its new place: before the first other word that its middle comes before, in reading order.
+      const cx = d.l + d.dx + d.el.offsetWidth / 2;
+      const cy = d.t + d.dy + d.el.offsetHeight / 2;
+      const others = field.current ? [...field.current.querySelectorAll('.wchip.in')].filter((c) => c !== d.el) : [];
+      let at = others.findIndex((c) => cy < c.offsetTop || (cy < c.offsetTop + c.offsetHeight && cx < c.offsetLeft + c.offsetWidth / 2));
+      if (at < 0) at = others.length;
+      const rest = draftRef.current.filter((x) => x !== d.id);
+      const next = [...rest.slice(0, at), d.id, ...rest.slice(at)];
+      if (next.join() !== draftRef.current.join()) {
+        setDraft(next);
+        setWrong(false);
+      }
+      place();
+    };
+    const off = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', end);
+      window.removeEventListener('pointercancel', end);
+    };
+    const end = (e) => {
+      const d = drag.current;
+      if (!d || (e && e.pointerId !== d.pid)) return;
+      drag.current = null;
+      off();
+      if (!d.on) return;
+      d.el.style.transform = '';
+      setDragId(null);
+      if (onDraggedRef.current) onDraggedRef.current();
+    };
+    const start = (e, id) => {
+      dragged.current = false;
+      if (missedRef.current || drag.current || (e.pointerType === 'mouse' && e.button !== 0)) return;
+      const el = e.currentTarget;
+      drag.current = { id, el, pid: e.pointerId, x: e.clientX, y: e.clientY, l: el.offsetLeft, t: el.offsetTop, dx: 0, dy: 0, on: false };
+      window.addEventListener('pointermove', move, { passive: false });
+      window.addEventListener('pointerup', end);
+      window.addEventListener('pointercancel', end);
+    };
+    return { place, start, off };
+  }, []);
+  // A word moved with the arrow keys keeps the focus: moving it in the page takes the focus away.
+  const refocus = useRef(null);
+  useLayoutEffect(() => {
+    dnd.place();
+    const el = refocus.current != null && field.current && field.current.querySelector(`[data-id="${refocus.current}"]`);
+    refocus.current = null;
+    if (el) el.focus();
+  }, [draft]);
+  useEffect(() => dnd.off, []);
   const words = draft.map((id) => bank.find((b) => b.id === id).w);
   const extra = words.find((w) => step.why && step.why[w]);
   const short = !extra && words.length < answer.length;
@@ -1604,18 +1691,32 @@ function BuildPanel({ step, v, tr, onDone, onHint, test }) {
     onHint(why);
   };
   const edit = (next) => { if (!missed) { setDraft(next); setWrong(false); } };
+  // The arrow keys move the word in focus one place to the left or to the right.
+  const nudge = (e, id) => {
+    const k = e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : 0;
+    const i = draft.indexOf(id);
+    if (!k || missed || i + k < 0 || i + k >= draft.length) return;
+    e.preventDefault();
+    const next = [...draft];
+    [next[i], next[i + k]] = [next[i + k], next[i]];
+    refocus.current = id;
+    edit(next);
+  };
   const text = val(step.text, v);
   return html`<div class="panel-in">
     <span class="eyebrow">СОБЕРИ ОТВЕТ${tr ? html`<span class="eyebrow-ru"> · «${val(step.ru, v)}»</span>` : null}</span>
     <div class="build-row">
-      <div class=${'build-field' + (wrong ? ' bad' : '')} aria-label="Твой ответ" lang="kk">
-        ${words.length ? draft.map((id, i) => html`<button type="button" class="wchip in" aria-label=${`Убрать «${words[i]}»`}
-          onClick=${() => edit(draft.filter((x) => x !== id))}>${words[i]}</button>`)
+      <div class=${'build-field' + (wrong ? ' bad' : '')} ref=${field} aria-label="Твой ответ" lang="kk">
+        ${words.length ? draft.map((id, i) => html`<button type="button" key=${id} data-id=${id} class=${'wchip in' + (dragId === id ? ' drag' : '')}
+          aria-label=${`Убрать «${words[i]}» (стрелки — переставить)`}
+          onPointerDown=${(e) => dnd.start(e, id)} onKeyDown=${(e) => nudge(e, id)}
+          onClick=${() => { if (dragged.current) { dragged.current = false; return; } edit(draft.filter((x) => x !== id)); }}>${words[i]}</button>`)
           : html`<span class="muted sm placeholder">Нажимай на слова ниже…</span>`}
       </div>
       ${missed ? null : html`<button type="button" class="send-round" aria-label="Отправить ответ" disabled=${!draft.length} onClick=${send}>
         <${Icon} name="send" size=${22} stroke=${2.4} /></button>`}
     </div>
+    ${dragHint && !missed && draft.length > 1 ? html`<span class="muted sm drag-hint">Порядок слов можно менять пальцем</span>` : null}
     ${missed
       ? html`<div class="type-model"><span class="grow"><b class="kk" lang="kk">${text}</b></span><${SpeakBtn} text=${text} small /></div>
         <button type="button" class="btn btn-primary btn-block" onClick=${() => onDone(false)}>Дальше</button>`
@@ -2237,6 +2338,7 @@ function ConvScreen({ st, update, ti, ci, go, back }) {
         }} />`;
     } else if (step.build) {
       panel = html`<${BuildPanel} key=${pos} step=${step} v=${v} tr=${task} onHint=${hint}
+        dragHint=${!st.seen.drag} onDragged=${() => { if (!stRef.current.seen.drag) update((d) => { d.seen.drag = true; }); }}
         onDone=${() => advance([{ k: 'me', kk: val(step.text, v), ru: val(step.ru, v) }], { rule: step.rule, word: step.word })} />`;
     } else if (step.say || step.own) {
       // An answer in one's own words goes to the chat as a voice message; Bota then shows the example.
@@ -2586,6 +2688,7 @@ function TestScreen({ st, update, go, id, back }) {
         onDone=${(o, ok) => answered(ok, ok ? [{ k: 'me', kk: val(o.kk, v) }] : [])} />`;
     } else if (it.kind === 'build') {
       panel = html`<${BuildPanel} key=${idx} step=${s} v=${v} tr test onHint=${hint}
+        dragHint=${!st.seen.drag} onDragged=${() => { if (!stRef.current.seen.drag) update((d) => { d.seen.drag = true; }); }}
         onDone=${(ok) => answered(ok, ok ? [{ k: 'me', kk: val(s.text, v) }] : [])} />`;
     } else if (it.kind === 'write') {
       panel = html`<${TypePanel} key=${idx} step=${s} v=${v} auto=${st.settings.voice} test onHint=${hint}

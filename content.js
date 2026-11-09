@@ -3,9 +3,9 @@
 // Templates in strings: {name}, {cityAbl}, {cityAblSyl}, {cityFrom}, {cityLoc}, {cityIn}.
 // A step field may also be a function of the learner's variables (v) => string.
 
-import { A2_PEOPLE, A2_PHRASES, A2_TOPICS } from './content-a2.js?v=d769f27';
-import { B1_PEOPLE, B1_PHRASES, B1_TOPICS } from './content-b1.js?v=d769f27';
-import { B2_PEOPLE, B2_PHRASES, B2_TOPICS } from './content-b2.js?v=d769f27';
+import { A2_PEOPLE, A2_PHRASES, A2_TOPICS } from './content-a2.js?v=cad8f68';
+import { B1_PEOPLE, B1_PHRASES, B1_TOPICS } from './content-b1.js?v=cad8f68';
+import { B2_PEOPLE, B2_PHRASES, B2_TOPICS } from './content-b2.js?v=cad8f68';
 
 export const KINDS = {
   listen: { label: 'Послушай', icon: 'ear' },
@@ -2371,6 +2371,8 @@ export const BABY_NOW = {
 };
 
 // «Бұл күні тарихта»: only facts checked against at least two sources.
+// The history of Kazakhstan on the start screen: a fact a day, in the order of time, from the Saka on
+// (see HISTORY at the end of this file).
 export const FACTS = {
   '10-25': { date: '25 октября', year: '1990',
     kk: 'Қазақ КСР Жоғарғы Кеңесі Мемлекеттік егемендік туралы декларацияны қабылдады.',
@@ -2383,3 +2385,113 @@ export const FACTS = {
     place: 'Астана, Акорда', word: 'әліпби', wordRu: 'алфавит',
     source: 'Указ Президента РК № 569 от 26.10.2017 «О переводе алфавита казахского языка с кириллицы на латинскую графику»' },
 };
+
+// История Казахстана для стартового экрана: по факту в день, по порядку, начиная с саков. Каждый факт
+// подтверждён двумя источниками и больше: era — время, title — заголовок, ru — 2–3 предложения, word и
+// wordRu — казахское слово из факта, place — где, source — источники через «;».
+export const HISTORY = [
+  { id: 'saki', era: 'I тыс. до н. э.', title: 'Сакские племена',
+    ru: 'Саки — ираноязычные кочевые племена, жившие в I тысячелетии до н. э. в степях Казахстана и Средней Азии. Имя «сака» записано в древнеперсидских надписях, а Геродот писал, что так персы называют всех скифов.',
+    word: 'сақтар', wordRu: 'саки', place: 'Степи Казахстана и Средней Азии',
+    source: 'БСЭ, ст. «Саки» (М. А. Дандамаев) (https://www.booksite.ru/fulltext/1/001/008/098/919.htm); Encyclopaedia Iranica, «Sakas: in Afghanistan» (https://www.iranicaonline.org/articles/sakas-in-afghanistan); Геродот, «История» 7.64 (https://www.perseus.tufts.edu/hopper/text?doc=Hdt.+7.64); e-history.kz, «Саки» (https://e-history.kz/ru/chronology/event/286)' },
+  { id: 'tomiris', era: 'около 530 г. до н. э.', title: 'Царица Томирис',
+    ru: 'По рассказу Геродота, царица кочевников-массагетов Томирис около 530 г. до н. э. разбила войско персидского царя Кира II, и Кир погиб в бою. Массагеты были родственны сакам. Сам Геродот признавал, что о гибели Кира рассказывали по-разному.',
+    word: 'патшайым', wordRu: 'царица', place: 'Приаралье, между Амударьёй и Сырдарьёй (точное место неизвестно)',
+    source: 'Геродот, «История» 1.205–214 (https://www.perseus.tufts.edu/hopper/text?doc=Hdt.+1.214); Encyclopaedia Iranica, «Massagetae», R. Schmitt (https://www.iranicaonline.org/articles/massagetae); Encyclopaedia Iranica, «Cyrus iii. Cyrus II the Great», M. Dandamayev (https://www.iranicaonline.org/articles/cyrus-iii); Britannica, «Cyrus the Great» (https://www.britannica.com/biography/Cyrus-the-Great); Britannica, «Central Asian arts: Nomadic cultures» (https://www.britannica.com/art/Central-Asian-arts/Nomadic-cultures)' },
+  { id: 'altyn-adam', era: 'V–III вв. до н. э.', title: 'Золотой человек',
+    ru: 'В 1969–1970 годах экспедиция Кемаля Акишева раскопала курган Иссык в 50 км от Алматы. Погребение знатного сака V–III вв. до н. э. хранило больше 4000 золотых украшений. «Золотой человек» стал символом независимого Казахстана.',
+    word: 'Алтын адам', wordRu: 'Золотой человек', place: 'Курган Иссык (Есик), около 50 км к востоку от Алматы',
+    source: 'Science Advances, 3.07.2026, «Ancient DNA reveals elite dynastic rule among Iron Age Eurasian Steppe nomads» (https://www.science.org/doi/10.1126/sciadv.aef0108); Kazinform, «ТОП-10 исторических мест Казахстана» (https://www.inform.kz/ru/top-10-istoricheskih-mest-kazahstana-a5d41d); e-history.kz, «Золотой человек» (по нац. энциклопедии «Казахстан») (https://e-history.kz/ru/publications/view/4681); e-history.kz, выставка о К. Акишеве (https://e-history.kz/en/news/show/7917); oq.gov.kz, «Иссыкские сакские курганы» (https://oq.gov.kz/en/abai/esik-saq-qorghandary)' },
+  { id: 'usuni-kangyui', era: 'со II в. до н. э.', title: 'Усуни и Кангюй',
+    ru: 'Со II в. до н. э. в Семиречье (Жетысу) жили усуни, а у Сырдарьи сложилось государство Кангюй — по-казахски Қаңлы. О них пишут прежде всего китайские хроники: империя Хань искала здесь союзников против хунну, и усуни с ней сблизились.',
+    word: 'үйсін', wordRu: 'усуни', place: 'Семиречье (Жетысу) и долина Сырдарьи',
+    source: 'БСЭ, ст. «Усуни» (https://booksite.ru/FullText/1/001/008/114/801.htm); БСЭ, ст. «Кангюй» (https://booksite.ru/FullText/1/001/008/058/480.htm); e-history.kz, «Уйсуны» (https://e-history.kz/media/scorm/66/text/text.htm); e-history.kz, «Үйсін мемлекеті» (https://e-history.kz/ru/history-of-kazakhstan/show/9097); e-history.kz, «Государство Кангюй» (https://e-history.kz/ru/history-of-kazakhstan/show/9075); Казахстанская правда, 12.11.2025, о монографии А. Подушкина «Государство Кангюй II век до н. э. – IV век н. э.» (https://kazpravda.kz/n/v-shymkente-predstavlena-monografiya-aleksandra-podushkina-o-gosudarstve-kangyuy/)' },
+  { id: 'shelkovyi-put', era: 'со II в. до н. э.', title: 'Великий шёлковый путь',
+    ru: 'Со II в. до н. э. караванные дороги Шёлкового пути связали Китай с Западом. В Казахстане на них стояли Тараз, Отрар и Туркестан. В 2014 году ЮНЕСКО внесла в список всемирного наследия 33 памятника коридора Чанъань — Тянь-Шань, 8 из них — в Казахстане.',
+    word: 'Ұлы Жібек жолы', wordRu: 'Великий шёлковый путь', place: 'Юг Казахстана и Жетысу',
+    source: 'UNESCO WHC, «Silk Roads: the Routes Network of Chang\'an-Tianshan Corridor» (https://whc.unesco.org/en/list/1442 и список частей https://whc.unesco.org/en/list/1442/maps/); e-history.kz, «11 historical sites protected by UNESCO in Kazakhstan» (https://e-history.kz/en/news/show/8287); Tengrinews, 15.07.2014, «8 Silk Road monuments in Kazakhstan added to UNESCO World Heritage List» (https://en.tengrinews.kz/news/254517); e-history.kz, «Великий Шелковый путь» (https://e-history.kz/ru/kazakhstanika/show/10058); UNESCO WHC, предварительный список «Silk Roads: Fergana-Syrdarya Corridor» (https://whc.unesco.org/en/tentativelists/6568/); e-history.kz, «Что же такое „Шелковый путь“?» (https://e-history.kz/media/scorm/80/text/text.htm)' },
+  { id: 'tyurkskii-kaganat', era: '552 год', title: 'Тюркский каганат',
+    ru: 'В 552 году тюрки во главе с Бумыном восстали против своих владык — жужаней — и разбили их. Бумын стал каганом и основал Тюркский каганат. На пике его земли тянулись от границ Китая до Чёрного моря.',
+    word: 'қаған', wordRu: 'каган, верховный правитель', place: 'Степи Евразии — от Монголии до Чёрного моря',
+    source: 'Britannica, «History of Central Asia: The Middle Ages» (https://www.britannica.com/place/history-of-Central-Asia-102306/The-Middle-Ages); Britannica, «Juan-juan» (https://www.britannica.com/topic/Juan-juan); e-history.kz, «Turkic and Turgesh Khaganates (552–756)» (https://e-history.kz/en/history-of-kazakhstan/show/9511)' },
+  { id: 'al-farabi', era: 'около 870 г.', title: 'Аль-Фараби, Второй учитель',
+    ru: 'Философ аль-Фараби родился около 870 года — по самой распространённой версии, в Фарабе, у Отрара на Сырдарье. Жил и писал в Багдаде, умер в Дамаске. Его называют «Вторым учителем»: первым считался Аристотель, чьи труды он толковал.',
+    word: 'Екінші ұстаз', wordRu: 'Второй учитель', place: 'Фараб (Отрар) — Багдад — Дамаск',
+    source: 'Stanford Encyclopedia of Philosophy, «al-Farabi» (https://plato.stanford.edu/entries/al-farabi/); e-history.kz, «Al-Farabi – the second teacher» (https://e-history.kz/en/news/show/7125); Kazinform, «„Второй учитель“: к 1150-летию… аль-Фараби» (https://www.inform.kz/ru/vtoroy-uchitel-k-1150-letiyu-uchenogo-filosofa-al-farabi_a3561411); Britannica, «al-Fārābī» (https://www.britannica.com/biography/al-Farabi); Encyclopaedia Iranica, «Fārābī i. Biography», D. Gutas (https://www.iranicaonline.org/articles/farabi-i)' },
+  { id: 'yasavi', era: 'конец XIV в.', title: 'Мавзолей Ясави',
+    ru: 'Ходжа Ахмед Ясави — суфийский поэт и наставник XII века. В конце XIV века по приказу Тимура в городе Ясы, нынешнем Туркестане, начали строить его мавзолей, и он так и остался недостроенным. С 2003 года мавзолей — объект всемирного наследия ЮНЕСКО.',
+    word: 'кесене', wordRu: 'мавзолей', place: 'Туркестан (Ясы), юг Казахстана',
+    source: 'UNESCO WHC, «Mausoleum of Khoja Ahmed Yasawi» (https://whc.unesco.org/en/list/1103); Leiden University, проект Iran–Turan, «Yasawi Shrine (late 14th–early 15th century)» (https://iranturan.leiden.edu/cities/turkestan/yasawi-shrine-late-14th-early-15th-century/); e-history.kz, «11 historical sites protected by UNESCO in Kazakhstan» (https://e-history.kz/en/news/show/8287)' },
+  { id: 'otrar-1219', era: '1219–1220', title: 'Осада Отрара',
+    ru: 'В 1219 году войско Чингисхана осадило Отрар: годом раньше наместник города Инальчук, он же Кайыр-хан, казнил купцов монгольского каравана. Город держался около пяти месяцев, а его цитадель пала в начале 1220 года.',
+    word: 'Отырар', wordRu: 'Отрар', place: 'Отрар на Сырдарье, ныне Туркестанская область',
+    source: 'Encyclopaedia Iranica, «Ḡāyer Khan» (https://www.iranicaonline.org/articles/gayer-khan/); e-history.kz, «Монгольское нашествие на территорию Казахстана» (https://e-history.kz/ru/history-of-kazakhstan/show/9147); e-history.kz, «The Mongolian Invasion of Otyrar», 03.08.2018 (https://e-history.kz/en/news/show/7150); БРЭ, «Чингисхан» — караван 1218 года (https://bigenc.ru/c/chingiskhan-ae132f)' },
+  { id: 'ulus-jochi', era: 'XIII–XV вв.', title: 'Золотая Орда',
+    ru: 'В 1220-х годах Чингисхан выделил старшему сыну Джучи улус в степях Дешт-и-Кипчака. В Улус Джучи вошли и степи нынешнего Казахстана. Название «Золотая Орда» появилось позже — в русских сочинениях XVI века.',
+    word: 'Алтын Орда', wordRu: 'Золотая Орда', place: 'Дешт-и-Кипчак — степь от Иртыша до Дуная',
+    source: 'БРЭ, «Золотая Орда» (https://old.bigenc.ru/domestic_history/text/3866617); БРЭ, «Дешт-и-Кипчак» (https://bigenc.ru/domestic_history/text/1950866); Britannica, «Golden Horde» (https://www.britannica.com/place/Golden-Horde); Kazinform, А. Айсултан, «Ulus of Jochi: What was the political and economic system of the Golden Horde», 27.06.2024 (https://qazinform.com/amp/ulus-of-jochi-what-was-the-political-and-economic-system-of-the-golden-horde-0de81d); МИД РК, «Kazakhstan\'s 750th Anniversary of the Golden Horde», 16.10.2020 (https://www.gov.kz/memleket/entities/mfa-vienna/press/news/details/110329?lang=en)' },
+  { id: 'khanate-1465', era: 'около 1465 года', title: 'Начало Казахского ханства',
+    ru: 'Керей и Жанибек увели часть кочевников из владений Абулхаир-хана в долины Чу и Таласа. По хронике Мухаммеда Хайдара Дулати, их правление началось около 1465 года. В 2015 году Казахстан отметил 550-летие Казахского ханства.',
+    word: 'Қазақ хандығы', wordRu: 'Казахское ханство', place: 'Долины рек Чу и Талас',
+    source: 'Britannica, «Karay Beg» (https://www.britannica.com/biography/Karay-Beg); Euronews, «Kazakhstan celebrates the 550th anniversary of Kazakh statehood», 27.07.2015 (https://www.euronews.com/2015/07/27/kazakhstan-celebrates-the-550th-anniversary-of-kazakh-statehood); e-history.kz, «One of the first celebrations on the 550th anniversary of the Kazakh Khanate», 14.09.2015 (https://e-history.kz/en/news/show/8406); Казахстанская правда, «Воинская доблесть ханов» (https://kazpravda.kz/n/voinskaya-doblest-hanov/)' },
+  { id: 'kasym-khan', era: 'начало XVI в.', title: 'Законы Касым-хана',
+    ru: 'В начале XVI века, при Касым-хане, Казахское ханство окрепло и расширило свои земли. С его именем связывают «Светлый путь Касым-хана» — первый свод казахских законов, основанный на степных обычаях.',
+    word: 'Қасым ханның қасқа жолы', wordRu: '«Светлый путь Касым-хана»', place: 'Казахская степь',
+    source: 'e-history.kz, «The great steppe under the rule of Kasym Khan» (https://e-history.kz/en/projects/show/23344); e-history.kz, «The first laws in steppe» (https://e-history.kz/en/projects/show/23327); The Astana Times (по материалу Kazinform), А. Накиспекова, «How Kassym Khan\'s Laws Laid Foundation of Kazakh Statehood», 15.02.2026 (https://astanatimes.com/2026/02/how-kassym-khans-laws-laid-foundation-of-kazakh-statehood/)' },
+  { id: 'zheti-zhargy', era: 'конец XVII в.', title: '«Жеті жарғы» Тауке-хана',
+    ru: 'В конце XVII века, при Тауке-хане, представители трёх жузов свели обычаи и прежние законы в один свод — «Жеті жарғы», «Семь установлений». Он дошёл до нас не целиком, в записях XIX века.',
+    word: 'Жеті жарғы', wordRu: '«Семь установлений»', place: 'Туркестан — ставка Тауке-хана',
+    source: 'БРЭ, «Тауке» (https://old.bigenc.ru/world_history/text/4183847); БРЭ, «Жеты-Жаргы» (https://old.bigenc.ru/world_history/text/2626079); e-history.kz, Г. Абдимомынова, «Семь фактов о «Жеті жарғы»» (https://e-history.kz/ru/projects/show/23217); Britannica, «Teüke Khan» (https://www.britannica.com/biography/Teuke-Khan)' },
+  { id: 'aktaban-1723', era: '1723 год', title: 'Годы великого бедствия',
+    ru: 'В 1723 году джунгары опустошительно вторглись в казахские земли, и люди бежали из родных мест. Казахи помнят это время как «годы великого бедствия». С ним традиция связывает песню-плач «Елім-ай» — «Родина моя».',
+    word: 'Ақтабан шұбырынды, Алқакөл сұлама', wordRu: '«годы великого бедствия»', place: 'Казахские земли, прежде всего восточные: Жетысу и Прииртышье',
+    source: 'Britannica, «History of Kazakhstan» (https://www.britannica.com/topic/history-of-Kazakhstan) и «Cevang Rabtan» (https://www.britannica.com/biography/Cevang-Rabtan); e-history.kz, «Dzungarian invasions» (https://e-history.kz/en/history-of-kazakhstan/show/9560); Т. Омарбеков и др., «История Казахстана. Методическое руководство для 8 класса», Мектеп, 2018 (https://mektep.kz/userfiles/9d21845451f07c165047ec83b9d6eda7.pdf); M. Hancock-Parmer, «The Creation of Elim-ai», Вестник КазНУ, серия историческая, 2017, № 3 (https://bulletin-history.kaznu.kz/index.php/1-history/article/view/147)' },
+  { id: 'anyrakay', era: 'около 1729–1730', title: 'Анракайская битва',
+    ru: 'Около 1729–1730 годов объединённое ополчение трёх жузов разбило джунгар в местности Анракай, южнее озера Балхаш. Эту победу считают переломом в войне. Точные год и место историки уточняют до сих пор.',
+    word: 'Аңырақай', wordRu: 'Анракай (местность, где шла битва)', place: 'Местность Анракай, южнее Балхаша',
+    source: 'e-history.kz, «Dzungarian invasions» (https://e-history.kz/en/history-of-kazakhstan/show/9560); e-history.kz, «Trick that was put forth by Kazakhs at Anrakay battle», 09.12.2016 (https://e-history.kz/en/news/show/6975); Archaeology.kz, «The Battle of Anyrakai, historical landscape» — по справочнику Института археологии им. А. Х. Маргулана, 2017 (https://archaeology.kz/en/heritages/anyraqai-shaiqasy-tarihi-landshaft); Т. Омарбеков и др., Мектеп, 2018 (https://mektep.kz/userfiles/9d21845451f07c165047ec83b9d6eda7.pdf)' },
+  { id: 'abylai-khan', era: '1771 год', title: 'Хан Абылай',
+    ru: 'Абылай прославился как батыр в войнах с джунгарами, а в 1771 году стал ханом. Он умело лавировал между Российской империей и Цинским Китаем. Похоронен в Туркестане, в мавзолее Ходжи Ахмеда Ясави.',
+    word: 'Абылай хан', wordRu: 'Абылай-хан', place: 'Туркестан, мавзолей Ходжи Ахмеда Ясави',
+    source: 'e-history.kz, «Abylay Khan (Abilmansur)», 08.01.2015 (https://e-history.kz/en/prominent-figures/show/12717); БРЭ, «Аблай» (https://bigenc.ru/world_history/text/661005); Britannica, «Ablai Khan» (https://www.britannica.com/biography/Ablai-Khan); Kazinform, «Мавзолей Ясави — центральный объект на территории историко-культурного музея-заповедника «Хазрет Султан»» (https://www.inform.kz/ru/mavzoley-yasavi-central-nyy-ob-ekt-na-territorii-istoriko-kul-turnogo-muzeya-zapovednika-hazret-sultan-fotoreportazh_a2764025)' },
+  { id: 'kenesary', era: '1837–1847', title: 'Восстание Кенесары',
+    ru: 'В 1837 году внук Абылая султан Кенесары Касымов поднял восстание против власти Российской империи. В 1841 году его провозгласили ханом, в 1847-м он погиб. Его называют последним ханом казахов.',
+    word: 'Кенесары Қасымұлы', wordRu: 'Кенесары Касымов (Қасымұлы — «сын Касыма»)', place: 'Сарыарка, затем Жетысу',
+    source: 'БРЭ, «Кенесары Касымов» (https://bigenc.ru/c/kenesary-kasymov-503049); e-history.kz, «Кенесары Касымов» (https://e-history.kz/ru/prominent-figures/show/12622); Kazinform, «Кенесары Касымов» (https://www.inform.kz/ru/kenesary-kasymov_a2191154)' },
+  { id: 'abai', era: '1845–1904', title: 'Абай Кунанбаев',
+    ru: 'Абай Кунанбаев — поэт и мыслитель, основоположник новой казахской письменной литературы. Он написал «Слова назидания» и перевёл на казахский Пушкина, Лермонтова и Крылова. В 1995 году его 150-летие отмечали под эгидой ЮНЕСКО.',
+    word: 'Қара сөздер', wordRu: '«Слова назидания» — книга прозы Абая', place: 'Чингизские горы (Шыңғыстау), ныне область Абай',
+    source: 'e-history.kz (https://e-history.kz/en/history-of-kazakhstan/show/9593); The Times of Central Asia (https://timesca.com/abai-day-in-kazakhstan/); Qazinform (https://qazinform.com/news/kazakhstan-to-host-over-350-events-to-celebrate-abai-day-85b7b1); The Astana Times (https://www.astanatimes.com/?p=45314); речь гендиректора ЮНЕСКО Ф. Майора, Алматы, 9.08.1995 (https://abai.kaznu.kz/eng/?p=31)' },
+  { id: 'alash', era: 'декабрь 1917', title: 'Автономия Алаш',
+    ru: 'В декабре 1917 года Второй всеказахский съезд в Оренбурге решил создать автономию «Алаш» и избрал её правительство — Алаш-Орду во главе с Алиханом Букейхановым. В 1920 году советская власть автономию упразднила.',
+    word: 'Алаш', wordRu: 'имя легендарного предка казахов', place: 'Оренбург',
+    source: 'e-history.kz (https://e-history.kz/en/calendar/show/27627); Encyclopedia of Russian History, Gale — статья «Alash Orda» на Encyclopedia.com (https://encyclopedia.com/history/encyclopedias-almanacs-transcripts-and-maps/alash-orda); Informburo (https://informburo.kz/stati/100-let-avtonomii-alash-vsyo-chto-nuzhno-znat-o-pervoy-kazahskoy-respublike.html)' },
+  { id: 'asharshylyk', era: '1930–1933', title: 'Голод 1930-х годов',
+    ru: 'В 1930–1933 годах, после принудительной коллективизации и перевода кочевников на оседлость, Казахстан пережил массовый голод. По разным оценкам, погибли от 1,5 до более чем 2 млн человек. 31 мая страна вспоминает жертв политических репрессий и голода.',
+    word: 'Ашаршылық', wordRu: 'голод, массовый голод', place: 'Казахская АССР',
+    source: 'e-history.kz (https://e-history.kz/en/history-of-kazakhstan/show/9606); Fergana News Agency (https://en.fergana.agency/news/118784/); RFE/RL (https://www.rferl.org/amp/1079304.html); 24.kz (https://24.kz/ru/news/top-news/712896-31-maya-den-pamyati-zhertv-politicheskikh-repressij-i-goloda); Указ Президента РК от 5.04.1997 № 3443 (https://adilet.zan.kz/rus/docs/U970003443_, текст читал в копии https://zakon.uchet.kz/rus/docs/U970003443_)' },
+  { id: 'semey-polygon', era: '1949–1991', title: 'Семипалатинский полигон',
+    ru: '29 августа 1949 года на Семипалатинском полигоне испытали первую советскую атомную бомбу. До 1989 года здесь прошло более 450 ядерных испытаний. Полигон закрыли указом 29 августа 1991 года — теперь это Международный день действий против ядерных испытаний.',
+    word: 'сынақ', wordRu: 'испытание (ядролық сынақ — ядерное испытание)', place: 'степь под Семеем (Семипалатинском)',
+    source: 'CTBTO (https://www.ctbto.org/specials/testing-times/29-august-1949-first-soviet-nuclear-test); Российская газета (https://rg.ru/2024/08/28/atomnaia-bomba-na-vesah-istorii.html); e-history.kz (https://e-history.kz/en/calendar/event/139); caa.gov.kz (https://caa.gov.kz/en/blog/post/30-years-closure-semipalatinsk-nuclear-test-site); ООН (https://www.un.org/ru/observances/end-nuclear-tests-day)' },
+  { id: 'baikonur', era: '1955–1961', title: 'Космодром Байконур',
+    ru: 'Космодром Байконур начали строить в степи Казахской ССР в 1955 году. Отсюда 4 октября 1957 года запустили первый искусственный спутник Земли, а 12 апреля 1961 года в космос полетел Юрий Гагарин. Сейчас космодром арендует Россия.',
+    word: 'ғарыш', wordRu: 'космос', place: 'Кызылординская область',
+    source: 'ESA (https://www.esa.int/Science_Exploration/Human_and_Robotic_Exploration/Astronauts/Baikonur_Steppe_into_Space); Informburo (https://informburo.kz/stati/istoriya-baykonura-kak-sozdavalsya-pervyy-kosmodrom-i-chto-ego-zhdyot-v-budushchem.html); inbusiness.kz (https://inbusiness.kz/ru/last/segodnya-otmechaet-den-rozhdeniya-bajkonura); RFE/RL (https://www.rferl.org/a/baikonur-cosmodrome/24882993.html)' },
+  { id: 'zheltoqsan', era: 'декабрь 1986', title: 'Декабрьские события 1986',
+    ru: '16 декабря 1986 года главу Компартии Казахстана Динмухамеда Кунаева сменил Геннадий Колбин, никогда не работавший в республике. 17–18 декабря молодёжь вышла на площадь в Алма-Ате. Протест разогнали силой, были погибшие и тысячи задержанных.',
+    word: 'Желтоқсан', wordRu: 'декабрь', place: 'Алма-Ата, площадь Брежнева (ныне площадь Республики)',
+    source: 'e-history.kz (https://e-history.kz/en/history-of-kazakhstan/show/9675 и https://e-history.kz/en/prominent-figures/show/12730); RFE/RL (https://www.rferl.org/a/Kazakhs_Rally_To_Mark_1986_Student_Uprising/1906874.html и https://www.rferl.org/a/1082701.html); Orda.kz (https://en.orda.kz/kazakhstan-marks-independence-day-remembering-the-tragic-december-events-of-1986-9628)' },
+  { id: 'independence', era: '16 декабря 1991', title: 'Независимость Казахстана',
+    ru: '16 декабря 1991 года Верховный Совет принял Конституционный закон «О государственной независимости Республики Казахстан». Он провозгласил страну независимым, демократическим и правовым государством. С тех пор 16 декабря — День независимости.',
+    word: 'Тәуелсіздік', wordRu: 'независимость', place: 'Алма-Ата',
+    source: 'Текст закона: Әділет (https://adilet.zan.kz/rus/docs/Z910004400_), читал в копии https://zakon.uchet.kz/rus/docs/Z910004400_; e-history.kz (https://e-history.kz/en/calendar/show/27421); 24.kz (https://24.kz/ru/news/policy/631185-32-goda-nazad-nachalas-letopis-suverennogo-kazakhstana)' },
+  { id: 'tenge', era: '15 ноября 1993', title: 'Национальная валюта тенге',
+    ru: '15 ноября 1993 года Казахстан ввёл свою валюту — тенге: 1 тенге меняли на 500 рублей. Название идёт от старинных тюркских монет. Этот день отмечают как День национальной валюты.',
+    word: 'теңге', wordRu: 'тенге', place: 'Казахстан',
+    source: 'Национальный банк РК (https://nationalbank.kz/en/page/currency-history); e-history.kz (https://e-history.kz/en/news/show/8045); inbusiness.kz (https://www.inbusiness.kz/ru/news/kazahstanskij-tenge-otmechaet-30-letie); Zakon.kz (https://www.zakon.kz/politika/4586534-segodnja-den-nacionalnojj-valjuty.html)' },
+  { id: 'astana', era: '1997–1998', title: 'Столица Астана',
+    ru: '10 декабря 1997 года столицей вместо Алматы стала Акмола, а 6 мая 1998 года её переименовали в Астану — по-казахски «столица». В 2019 году город назвали Нур-Султаном, а в 2022-м вернули имя Астана.',
+    word: 'Астана', wordRu: 'столица', place: 'Акмола — Астана',
+    source: 'Zakon.kz (https://www.zakon.kz/stati/6399038-astana-istoriya-pereimenovaniy-i-preobrazovaniy.html); Interfax (https://interfax.com/newsroom/top-stories/83178/); e-history.kz (https://e-history.kz/en/calendar/show/27519)' },
+];

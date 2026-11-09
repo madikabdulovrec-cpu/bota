@@ -162,6 +162,28 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--focus); out
 .fact-word { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 14px; background: var(--gold-wash); border: 1.5px solid var(--gold-line); }
 .fact-word > span:last-child { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .fact-src { font-size: 11.5px; line-height: 1.4; color: var(--muted); }
+/* The history of Kazakhstan, a fact a day: its title, the time, and what comes tomorrow. */
+.fact-date.hist { flex-direction: column; align-items: flex-start; gap: 2px; }
+.fact-next { color: var(--on-night-soft); font-size: 13px; text-align: center; }
+
+/* 00 welcome: the yurt and Bota, «Қош келдіңіз!», one paragraph, one button */
+.welcome-in { display: flex; flex-direction: column; align-items: center; gap: 16px; padding-top: 18px; padding-bottom: 12px; text-align: center; }
+.welcome-in .brand { align-self: flex-start; }
+/* Centred in the free space; on a short screen the margins give way and the page scrolls. */
+.welcome-main { display: flex; flex-direction: column; align-items: center; gap: 16px; margin: auto 0; }
+.welcome-hero { position: relative; width: 210px; height: 150px; margin-top: 6px; }
+.welcome-yurt { position: absolute; left: 0; bottom: 0; width: 180px; height: auto; }
+.welcome-hero .bota { position: absolute; right: 0; bottom: -4px; }
+.welcome-hello { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.welcome-hello .hello { display: inline-flex; align-items: center; gap: 10px; font-size: 38px; color: var(--on-night); }
+.welcome-tr { font-size: 17px; font-weight: 700; color: var(--on-night-soft); }
+.welcome-text { max-width: 340px; font-size: 15px; line-height: 1.5; color: var(--on-night-soft); }
+.welcome-text b { color: var(--on-night); }
+.welcome-bottom { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.link-btn.on-night { color: var(--on-night); font-size: 13.5px; font-weight: 600; text-decoration: underline; }
+.welcome-note { font-size: 13px; line-height: 1.4; color: var(--on-night-soft); text-align: center; }
+/* iPhone SE in Safari: a smaller yurt and greeting, so that the whole welcome fits above the button. */
+@media (max-height: 620px) { .welcome-in, .welcome-main { gap: 10px; } .welcome-hero { width: 160px; height: 104px; } .welcome-yurt { width: 132px; } .welcome-hero .bota { width: 62px; height: 62px; } .welcome-hello .hello { font-size: 32px; } .welcome-text { font-size: 14px; } }
 
 /* chat */
 .chat { background: var(--chat); }
@@ -674,5 +696,5 @@ button.vplay::after { content: ''; position: absolute; inset: -7px; }
   }
   window.botaBoot = setTimeout(botaFail, 10000);
 </script>
-<script type="module" src="./app.js?v=d769f27" onerror="botaFail()"></script>
+<script type="module" src="./app.js?v=cad8f68" onerror="botaFail()"></script>
 </body></html>

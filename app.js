@@ -1,13 +1,13 @@
 // Бота — MVP: conversational Kazakh for Russian speakers.
 import { html, render, useState, useEffect, useLayoutEffect, useRef, useMemo, useErrorBoundary } from 'https://cdn.jsdelivr.net/npm/htm@3.1.1/preact/standalone.module.js';
-import { KINDS, CITIES, JOBS, HOBBIES, CHOICES, PEOPLE, PHRASES, TOPICS, LEVELS, RULES, RESCUE, PHRASEBOOK, BABY, BABY_GROUPS, BABY_AGES, BABY_GOAL, BABY_NOW, ENDEARMENTS, FACTS, RACE_APART } from './content.js?v=d769f27';
-import * as fsrs from './fsrs.js?v=d769f27';
-import * as voice from './voice.js?v=d769f27';
-import * as mic from './mic.js?v=d769f27';
-import * as stats from './stats.js?v=d769f27';
-import { KZ_LETTERS, checkTyped, normType, plain, syllables, fillSlot } from './typing.js?v=d769f27';
-import { CHECKS, BLOCK, SIZE, PLACE_ASK, PLACE_PASS, checkItems, placeItems, need, passes } from './exam.js?v=d769f27';
-import { Icon, PlayGlyph, SpeakerGlyph, Sun, Logo, Bota, Avatar, Yurt, Photo, Shanyrak, Wave } from './art.js?v=d769f27';
+import { KINDS, CITIES, JOBS, HOBBIES, CHOICES, PEOPLE, PHRASES, TOPICS, LEVELS, RULES, RESCUE, PHRASEBOOK, BABY, BABY_GROUPS, BABY_AGES, BABY_GOAL, BABY_NOW, ENDEARMENTS, FACTS, HISTORY, RACE_APART } from './content.js?v=cad8f68';
+import * as fsrs from './fsrs.js?v=cad8f68';
+import * as voice from './voice.js?v=cad8f68';
+import * as mic from './mic.js?v=cad8f68';
+import * as stats from './stats.js?v=cad8f68';
+import { KZ_LETTERS, checkTyped, normType, plain, syllables, fillSlot } from './typing.js?v=cad8f68';
+import { CHECKS, BLOCK, SIZE, PLACE_ASK, PLACE_PASS, checkItems, placeItems, need, passes } from './exam.js?v=cad8f68';
+import { Icon, PlayGlyph, SpeakerGlyph, Sun, Logo, Bota, Avatar, Yurt, Photo, Shanyrak, Wave } from './art.js?v=cad8f68';
 
 // The version of the app: tools/site.mjs gives every module address ?v=<commit>.
 const VERSION = new URL(import.meta.url).searchParams.get('v') || 'dev';
@@ -62,7 +62,9 @@ function fresh() {
     // once the learner answered about the statistics; survey3, survey14: 'done' or 'skip' for the
     // short questions of the pilot.
     // drag: the learner has moved a word of «Собери фразу» with the finger (the hint about it is gone).
-    seen: { fact: '', noVoice: false, trTap: false, drag: false, install: '', persist: '', remind: '', stats: '', survey3: '', survey14: '' },
+    // hist: how many facts of the history of Kazakhstan were shown (the next one is HISTORY[hist]);
+    // histDay: the day a start fact was last shown — one a day, from the day after getting acquainted.
+    seen: { fact: '', noVoice: false, trTap: false, drag: false, hist: 0, histDay: '', install: '', persist: '', remind: '', stats: '', survey3: '', survey14: '' },
   };
 }
 
@@ -176,6 +178,13 @@ function mergeProgress(here, there) {
   });
   if (!out.place.day || (there.place.day && there.place.day > out.place.day)) out.place = { ...there.place };
   return out;
+}
+
+// The progress in a file of «Перенести прогресс», checked, or null when it is not such a file.
+async function progressFromFile(file) {
+  let data = null;
+  try { data = JSON.parse(await file.text()); } catch (e) { /* not JSON */ }
+  return isObj(data) && data.app === 'bota' && isObj(data.progress) ? normalize(data.progress) : null;
 }
 
 // A file for the learner: in the claude.ai artifact through its downloads capability (its frame may
@@ -814,6 +823,16 @@ function factFor(now = new Date()) {
   return null;
 }
 
+// What the first start of a day opens with: a fact of this date or week (once), or else the next fact
+// of the history of Kazakhstan — in order, from the Saka on, one a day, and round again after the last.
+function startFact(st, now = new Date()) {
+  const dated = factFor(now);
+  if (dated && st.seen.fact !== dated.key) return dated;
+  if (!HISTORY.length || st.seen.histDay === dayKey(now)) return null;
+  const i = Math.max(0, Math.floor(Number(st.seen.hist) || 0)) % HISTORY.length;
+  return { ...HISTORY[i], hist: i };
+}
+
 /* ---------- small shared pieces ---------- */
 
 function SpeakBtn({ text, small, label = 'Прослушать' }) {
@@ -854,24 +873,87 @@ function ShanyrakChip({ st, go }) {
 
 /* ---------- 00 · fact of the day ---------- */
 
+// The sources of a history fact on the card: the first two by name, without links (all of them, with
+// links, are in content.js and docs/history-facts.md).
+function shortSources(src) {
+  const all = String(src).split(';').map((s) => s.replace(/\s*\(https?:[^)]*\)/g, '').trim()).filter(Boolean);
+  return all.slice(0, 2).join('; ') + (all.length > 2 ? ` и ещё ${all.length - 2}` : '');
+}
+
+// A fact of a date («В этот день в истории») or of the history of Kazakhstan, one a day in order: its
+// time and title, a few lines, a Kazakh word from it, the sources; the next one is promised for tomorrow.
 function Splash({ fact, onNext }) {
   if (!fact) return null;
+  const hist = fact.hist !== undefined;
+  const next = hist ? HISTORY[(fact.hist + 1) % HISTORY.length] : null;
   return html`<main class="screen splash">
     <div class="scroll pad splash-in">
       <div class="brand"><${Logo} size=${28} /><span>Бота</span></div>
       <article class="fact-card">
-        <span class="eyebrow">${fact.today ? 'В ЭТОТ ДЕНЬ В ИСТОРИИ' : 'НА ЭТОЙ НЕДЕЛЕ В ИСТОРИИ'}</span>
-        <span class="eyebrow-kk" lang="kk">${fact.today ? 'бұл күні тарихта' : 'осы аптада тарихта'}</span>
-        <div class="fact-date"><span class="d">${fact.date}</span><span class="y">${fact.year}</span></div>
-        <p class="fact-kk" lang="kk">${fact.kk} <${SpeakBtn} text=${fact.kk} small /></p>
+        <span class="eyebrow">${hist ? `ИСТОРИЯ КАЗАХСТАНА · ${fact.hist + 1} ИЗ ${HISTORY.length}` : fact.today ? 'В ЭТОТ ДЕНЬ В ИСТОРИИ' : 'НА ЭТОЙ НЕДЕЛЕ В ИСТОРИИ'}</span>
+        <span class="eyebrow-kk" lang="kk">${hist ? 'Қазақстан тарихы' : fact.today ? 'бұл күні тарихта' : 'осы аптада тарихта'}</span>
+        ${hist ? html`<div class="fact-date hist"><span class="d">${fact.title}</span><span class="y">${fact.era}</span></div>`
+          : html`<div class="fact-date"><span class="d">${fact.date}</span><span class="y">${fact.year}</span></div>`}
+        ${fact.kk ? html`<p class="fact-kk" lang="kk">${fact.kk} <${SpeakBtn} text=${fact.kk} small /></p>` : null}
         <p class="fact-ru">${fact.ru}</p>
-        <div class="fact-meta"><span class="chip">Где: ${fact.place}</span></div>
+        ${fact.place ? html`<div class="fact-meta"><span class="chip">Где: ${fact.place}</span></div>` : null}
         <div class="fact-word"><span class="muted sm">слово из факта</span>
-          <span><b>${fact.word}</b> — ${fact.wordRu} <${SpeakBtn} text=${fact.word} small /></span></div>
-        <span class="fact-src">Источник: ${fact.source}</span>
+          <span><b lang="kk">${fact.word}</b> — ${fact.wordRu} <${SpeakBtn} text=${fact.word} small /></span></div>
+        <span class="fact-src">${hist ? `Источники: ${shortSources(fact.source)}` : `Источник: ${fact.source}`}</span>
       </article>
+      ${next && next !== HISTORY[0] ? html`<span class="fact-next">Завтра: ${next.title}</span>` : null}
     </div>
     <div class="bottom pad on-night"><button type="button" class="btn btn-light btn-block" onClick=${onNext}>Продолжить</button></div>
+  </main>`;
+}
+
+/* ---------- 00 · welcome: the very first start ---------- */
+
+// Bota meets a newcomer the way Kazakhs meet a guest — «Қош келдіңіз!» — and leads on to getting
+// acquainted. Someone who practised elsewhere brings the progress from a file: an app put on the home
+// screen of an iPhone starts with storage of its own, empty.
+function Welcome({ st, update, onNext, onLoaded }) {
+  const fileInput = useRef(null);
+  const [note, setNote] = useState('');
+  const hello = PHRASES.qosh;
+  const load = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    const there = await progressFromFile(file);
+    if (!there) {
+      setNote('Это не файл прогресса Боты. Его сохраняют в «Профиле» → «Перенести прогресс».');
+      return;
+    }
+    const merged = mergeProgress(latest(st), there);
+    update((d) => {
+      const next = mergeProgress(d, there);
+      Object.keys(d).forEach((k) => delete d[k]);
+      Object.assign(d, next);
+    });
+    onLoaded(merged);
+  };
+  return html`<main class="screen splash welcome">
+    <div class="scroll pad welcome-in">
+      <div class="brand"><${Logo} size=${28} /><span>Бота</span></div>
+      <div class="welcome-main">
+        <div class="welcome-hero" aria-hidden="true">
+          <svg class="welcome-yurt" viewBox="0 0 80 52"><${Yurt} /></svg>
+          <${Bota} size=${84} />
+        </div>
+        <div class="welcome-hello">
+          <span class="hello" lang="kk">${hello.kk} <${SpeakBtn} text=${hello.kk} small /></span>
+          <span class="welcome-tr">${hello.ru}</span>
+        </div>
+        <p class="welcome-text">Так казахи встречают гостя — и сразу зовут на <b lang="kk">төр</b>, почётное место в юрте. Здесь тебя ждёт твой круг: семья, соседи, коллеги. С каждым ты заговоришь по-казахски — по 1–2 минуты в день.</p>
+      </div>
+    </div>
+    <div class="bottom pad on-night welcome-bottom">
+      <button type="button" class="btn btn-light btn-block" onClick=${onNext}>Познакомиться с Ботой</button>
+      <button type="button" class="link-btn on-night" onClick=${() => fileInput.current && fileInput.current.click()}>Уже занимались? Загрузить прогресс из файла</button>
+      <input type="file" accept="application/json,.json" hidden ref=${fileInput} onChange=${load} />
+      ${note ? html`<span class="welcome-note" role="status">${note}</span>` : null}
+    </div>
   </main>`;
 }
 
@@ -911,7 +993,8 @@ function Onboard({ st, update, done }) {
   const test = mode === 'talk' && start === 'some';
   const finish = () => {
     if (!settled()) return;
-    update((d) => { d.profile = { ...d.profile, name: clean, mode, minutes, onboarded: true }; });
+    // The history of Kazakhstan on the start screen begins the next day: today belongs to getting acquainted.
+    update((d) => { d.profile = { ...d.profile, name: clean, mode, minutes, onboarded: true }; d.seen.histDay = dayKey(); });
     stats.track('onboard', { mode, minutes, start: mode === 'talk' ? start : '' });
     done(mode, test);
   };
@@ -3942,13 +4025,11 @@ function Profile({ st, update, go }) {
     const file = e.target.files && e.target.files[0];
     e.target.value = '';
     if (!file) return;
-    let data = null;
-    try { data = JSON.parse(await file.text()); } catch (err) { /* not JSON: answered below */ }
-    if (!isObj(data) || data.app !== 'bota' || !isObj(data.progress)) {
+    const there = await progressFromFile(file);
+    if (!there) {
       setTransfer('Это не файл прогресса Боты.');
       return;
     }
-    const there = normalize(data.progress);
     const merged = mergeProgress(latest(st), there);
     update((d) => {
       const next = mergeProgress(d, there);
@@ -4064,7 +4145,7 @@ function Profile({ st, update, go }) {
       </section>
       <section class="card danger">
         ${confirmReset ? html`<span><b>Сбросить весь прогресс?</b><span class="muted sm">Разговоры, память и серия на этом устройстве удалятся.</span></span>
-          <div class="row-btns"><button type="button" class="btn-chip danger-btn" onClick=${() => { update((d) => { const f = fresh(); Object.keys(d).forEach((k) => delete d[k]); Object.assign(d, f); }); homeLevel = null; go('onboard'); }}>Сбросить</button>
+          <div class="row-btns"><button type="button" class="btn-chip danger-btn" onClick=${() => { update((d) => { const f = fresh(); Object.keys(d).forEach((k) => delete d[k]); Object.assign(d, f); }); homeLevel = null; go('welcome'); }}>Сбросить</button>
             <button type="button" class="btn-chip" onClick=${() => setConfirmReset(false)}>Отмена</button></div>`
           : html`<button type="button" class="btn-chip" onClick=${() => setConfirmReset(true)}>Сбросить прогресс</button>`}
       </section>
@@ -4084,7 +4165,7 @@ function Profile({ st, update, go }) {
 const INITIAL = load();
 
 function routeAfterStart(st) {
-  if (!st.profile.onboarded) return { name: 'onboard' };
+  if (!st.profile.onboarded) return { name: 'welcome' };
   return { name: st.profile.mode === 'baby' ? 'baby' : 'home' };
 }
 
@@ -4104,6 +4185,7 @@ function upRoute(route, st) {
     case 'babyPrep': return route.back === 'babyScen' ? { name: 'babyScen', id: route.id, back: route.from } : { name: 'baby' };
     case 'baby': return start === 'baby' ? null : { name: 'phrasebook' };
     case 'home': case 'phrasebook': case 'profile': return route.name === start ? null : { name: start };
+    case 'onboard': return st.profile.onboarded ? null : { name: 'welcome' };
     default: return null;
   }
 }
@@ -4113,8 +4195,8 @@ function App() {
   // A fact is shown once: the splash keeps the fact it opened with, even past midnight. A newcomer
   // meets Bota first; the fact waits for a later start.
   const [route, setRoute] = useState(() => {
-    const fact = factFor();
-    return fact && INITIAL.profile.onboarded && INITIAL.seen.fact !== fact.key ? { name: 'splash', fact } : routeAfterStart(INITIAL);
+    const fact = INITIAL.profile.onboarded ? startFact(INITIAL) : null;
+    return fact ? { name: 'splash', fact } : routeAfterStart(INITIAL);
   });
   const shown = useRef({ route, st });
   shown.current = { route, st };
@@ -4189,7 +4271,20 @@ function App() {
   let screen;
   switch (route.name) {
     case 'splash':
-      screen = html`<${Splash} fact=${route.fact} onNext=${() => { update((d) => { d.seen.fact = route.fact.key; }); setRoute(routeAfterStart(st)); }} />`;
+      screen = html`<${Splash} fact=${route.fact} onNext=${() => {
+        const f = route.fact;
+        // One fact a day: a fact of a date takes the place of that day's history.
+        update((d) => {
+          if (f.hist === undefined) d.seen.fact = f.key;
+          else d.seen.hist = f.hist + 1;
+          d.seen.histDay = dayKey();
+        });
+        setRoute(routeAfterStart(st));
+      }} />`;
+      break;
+    case 'welcome':
+      // A file of progress brought here may hold a whole course: then its screen opens at once.
+      screen = html`<${Welcome} st=${st} update=${update} onNext=${() => go('onboard')} onLoaded=${(merged) => setRoute(routeAfterStart(merged))} />`;
       break;
     case 'onboard':
       // After meeting Bota the first conversation opens at once (with Әже), or the entrance test for

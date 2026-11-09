@@ -4,7 +4,7 @@
 // voices Aigul and Daulet). A line with the learner's name has no file, and most browsers have no
 // Kazakh voice, so every caller must work without sound.
 // A namespace import: an older audio-index.js without AUDIO_CREDIT must not stop the app.
-import * as INDEX from './audio-index.js?v=d41a81f';
+import * as INDEX from './audio-index.js?v=629350d';
 
 const AUDIO = INDEX.AUDIO || new Set();
 

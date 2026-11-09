@@ -2,8 +2,8 @@
 // heard and a question about them, a reply to choose or to put together, a message to write, a phrase
 // to say from memory — so they hold no Kazakh of their own, and everything in them has passed the
 // checks of the lessons. No DOM here: tools/validate.mjs tests this module in Node.
-import { TOPICS, PHRASES, CHECKPOINTS } from './content.js?v=5d19dff';
-import { normType } from './typing.js?v=5d19dff';
+import { TOPICS, PHRASES, CHECKPOINTS } from './content.js?v=d41a81f';
+import { normType } from './typing.js?v=d41a81f';
 
 const PLAYABLE = TOPICS.filter((t) => !t.soon);
 const TOPIC_AT = new Map(PLAYABLE.map((t, i) => [t.id, i]));
@@ -100,7 +100,9 @@ function phraseOf(t, c, kind, s, ctx) {
 // about. A question is left out when a line before it depends on the learner's own earlier answers,
 // or is a fast line to ask about again («переспроси»). A reply to choose or a question about what was
 // heard is left out after Bota's tip too: in the lesson its answer leans on that tip. A phrase to put
-// together, write or say keeps its place — its meaning is the task.
+// together, write or say keeps its place after a tip — its meaning is the task — but it answers a line
+// of the other person: one the learner starts after his own reply and Bota's tip («Спроси, можно ли
+// примерить») would stand in the chat of a test with nobody asking. «Как спросить…?» asks itself.
 const LEANS = new Set(['listen', 'ask', 'pick']);
 function itemsOf(t) {
   const out = [];
@@ -115,7 +117,7 @@ function itemsOf(t) {
       }
       const kind = kindOf(c, s, ctx);
       const lines = ctx.every((x) => safeText(x.npc) && safeText(x.ru) && !x.fast && !x.slow);
-      if (kind && lines && !(tip && LEANS.has(kind)) && safeStep(s)) {
+      if (kind && lines && (ctx.length || kind === 'ask') && !(tip && LEANS.has(kind)) && safeStep(s)) {
         out.push({ id: `${c.id}.${i}`, topic: t.id, who: t.who, lesson: c.id, kind, ctx: kind === 'ask' ? [] : ctx, step: s, ph: phraseOf(t, c, kind, s, ctx) });
       }
       ctx = [];

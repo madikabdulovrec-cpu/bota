@@ -1,13 +1,13 @@
 // Бота — MVP: conversational Kazakh for Russian speakers.
 import { html, render, useState, useEffect, useRef, useMemo, useErrorBoundary } from 'https://cdn.jsdelivr.net/npm/htm@3.1.1/preact/standalone.module.js';
-import { KINDS, CITIES, JOBS, HOBBIES, CHOICES, PEOPLE, PHRASES, TOPICS, LEVELS, RULES, RESCUE, PHRASEBOOK, BABY, BABY_GROUPS, BABY_AGES, BABY_GOAL, BABY_NOW, ENDEARMENTS, FACTS, RACE_APART } from './content.js?v=5d19dff';
-import * as fsrs from './fsrs.js?v=5d19dff';
-import * as voice from './voice.js?v=5d19dff';
-import * as mic from './mic.js?v=5d19dff';
-import * as stats from './stats.js?v=5d19dff';
-import { KZ_LETTERS, checkTyped, normType, plain, syllables, fillSlot } from './typing.js?v=5d19dff';
-import { CHECKS, BLOCK, SIZE, PLACE_ASK, PLACE_PASS, checkItems, placeItems, need, passes } from './exam.js?v=5d19dff';
-import { Icon, PlayGlyph, SpeakerGlyph, Sun, Logo, Bota, Avatar, Yurt, Photo, Shanyrak, Wave } from './art.js?v=5d19dff';
+import { KINDS, CITIES, JOBS, HOBBIES, CHOICES, PEOPLE, PHRASES, TOPICS, LEVELS, RULES, RESCUE, PHRASEBOOK, BABY, BABY_GROUPS, BABY_AGES, BABY_GOAL, BABY_NOW, ENDEARMENTS, FACTS, RACE_APART } from './content.js?v=d41a81f';
+import * as fsrs from './fsrs.js?v=d41a81f';
+import * as voice from './voice.js?v=d41a81f';
+import * as mic from './mic.js?v=d41a81f';
+import * as stats from './stats.js?v=d41a81f';
+import { KZ_LETTERS, checkTyped, normType, plain, syllables, fillSlot } from './typing.js?v=d41a81f';
+import { CHECKS, BLOCK, SIZE, PLACE_ASK, PLACE_PASS, checkItems, placeItems, need, passes } from './exam.js?v=d41a81f';
+import { Icon, PlayGlyph, SpeakerGlyph, Sun, Logo, Bota, Avatar, Yurt, Photo, Shanyrak, Wave } from './art.js?v=d41a81f';
 
 // The version of the app: tools/site.mjs gives every module address ?v=<commit>.
 const VERSION = new URL(import.meta.url).searchParams.get('v') || 'dev';
@@ -2579,7 +2579,8 @@ function TestScreen({ st, update, go, id, back }) {
       const lines = heard.current ? it.ctx.map((x) => val(x.npc, v)).filter((x) => voice.canSay(x)) : [];
       panel = html`<${CheckPanel} key=${idx} step=${s} test listen=${it.kind === 'listen'} auto=${st.settings.voice} onHint=${hint}
         slowly=${lines.length ? () => { mic.stopPlaying(); voice.sayAll(lines, 0.6); } : null}
-        onDeaf=${heard.current && !deaf ? cantListen : null} onDone=${(ok) => answered(ok)} />`;
+        onDeaf=${heard.current && !deaf ? cantListen : null}
+        onDone=${(ok) => answered(ok, ok && it.kind === 'ask' ? [{ k: 'me', kk: val((s.opts.find((o) => o.ok) || {}).t, v) }] : [])} />`;
     } else if (it.kind === 'pick') {
       panel = html`<${PickPanel} key=${idx} step=${s} v=${v} tr=${false} test onHint=${hint}
         onDone=${(o, ok) => answered(ok, ok ? [{ k: 'me', kk: val(o.kk, v) }] : [])} />`;

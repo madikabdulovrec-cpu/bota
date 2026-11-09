@@ -2,8 +2,8 @@
 // heard and a question about them, a reply to choose or to put together, a message to write, a phrase
 // to say from memory — so they hold no Kazakh of their own, and everything in them has passed the
 // checks of the lessons. No DOM here: tools/validate.mjs tests this module in Node.
-import { TOPICS, PHRASES, CHECKPOINTS } from './content.js?v=51d4143';
-import { normType } from './typing.js?v=51d4143';
+import { TOPICS, PHRASES, CHECKPOINTS } from './content.js?v=7219176';
+import { normType } from './typing.js?v=7219176';
 
 const PLAYABLE = TOPICS.filter((t) => !t.soon);
 const TOPIC_AT = new Map(PLAYABLE.map((t, i) => [t.id, i]));
@@ -18,10 +18,12 @@ const ORDER = ['listen', 'ask', 'pick', 'build', 'write', 'say'];
 // A рубеж is taken at 70% and more: 7 of 10, 9 of 12. need() — how many right answers that is.
 export const need = (n) => Math.ceil((n * 7) / 10);
 export const passes = (ok, n) => n > 0 && ok * 10 >= n * 7;
-// The entrance test asks up to 3 questions about a stretch of topics and goes on to the next stretch
-// after 2 right ones: two right or two wrong decide it, the third comes only when the first two disagree.
-export const PLACE_ASK = 3;
-export const PLACE_PASS = 2;
+// The entrance test asks up to 4 questions about a stretch of topics — one of them a phrase to put
+// together, or to write where the stretch has none — and goes on to the next stretch after 3 right ones:
+// guessing among three options passes a stretch about once in 27 tries, not once in four. Three right
+// or two wrong decide it early; the fourth question comes only when the first three disagree.
+export const PLACE_ASK = 4;
+export const PLACE_PASS = 3;
 
 // The checkpoints with what they cover: topics — the topics since the one before it in the circle
 // (the ones it opens the way after), circle — all topics of its level, which a final asks about.
@@ -174,14 +176,19 @@ export function checkItems(cp, rnd = Math.random) {
   return sorted(out);
 }
 
-// The entrance test asks three questions about a stretch of topics (the topics of one рубеж), each from
-// another topic: one heard (read, where there is no voice) and two replies.
+// The entrance test asks about a stretch of topics (the topics of one рубеж), each question from another
+// topic while there are topics left: one heard (read, where there is no voice), a reply and a phrase to
+// put together come first, in the order of the course; one more reply follows, asked only when the
+// first three disagree.
 export function placeItems(seg, rnd = Math.random) {
   const cp = CHECKS[seg];
   if (!cp) return [];
   const taken = new Set();
   const per = new Map();
-  const out = [...draw(cp.topics, ['listen'], 1, taken, per, rnd), ...draw(cp.topics, ['pick', 'ask'], PLACE_ASK - 1, taken, per, rnd)];
-  if (out.length < PLACE_ASK) out.push(...draw(cp.topics, ['pick', 'ask', 'listen', 'build'], PLACE_ASK - out.length, taken, per, rnd));
-  return sorted(out).map((x) => ({ ...x, seg }));
+  const build = draw(cp.topics, ['build'], 1, taken, per, rnd);
+  const made = build.length ? build : draw(cp.topics, ['write'], 1, taken, per, rnd);
+  const first = sorted([...draw(cp.topics, ['listen'], 1, taken, per, rnd), ...draw(cp.topics, ['pick', 'ask'], 1, taken, per, rnd), ...made]);
+  const out = [...first, ...draw(cp.topics, ['pick', 'ask'], PLACE_ASK - first.length, taken, per, rnd)];
+  if (out.length < PLACE_ASK) out.push(...draw(cp.topics, ['pick', 'ask', 'listen', 'build', 'write'], PLACE_ASK - out.length, taken, per, rnd));
+  return out.map((x) => ({ ...x, seg }));
 }

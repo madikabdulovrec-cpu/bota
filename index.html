@@ -380,6 +380,8 @@ button.vplay::after { content: ''; position: absolute; inset: -7px; }
 .map-center { position: absolute; left: 50%; top: 56.5%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 1px 8px; border: none; border-radius: 10px; background: var(--bg); color: inherit; font-family: inherit; text-align: center; white-space: nowrap; cursor: pointer; }
 .map-center b { font-size: 12px; font-weight: 800; color: var(--ink2); }
 .map-center span { display: inline-flex; align-items: center; gap: 2px; font-size: 11.5px; font-weight: 700; color: var(--teal-ink); }
+.map-center i { font-style: normal; }
+@media (max-height: 620px) { .map-center .lv-tag { display: none; } .map-center b { font-size: 11px; } }
 .av-btn { position: absolute; transform: translate(-50%, calc(-1 * var(--half))); display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 0; border: none; background: transparent; color: var(--ink); cursor: pointer; }
 .av { position: relative; display: inline-flex; }
 .av-ring { position: absolute; inset: 0; }
@@ -447,7 +449,8 @@ button.vplay::after { content: ''; position: absolute; inset: -7px; }
 .rev-kk { align-self: stretch; display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 10px; margin-top: 6px; padding-top: 14px; border-top: 1.5px dashed var(--line2); }
 .rev-kk b { font-family: var(--font-display); font-weight: 900; font-size: 22px; line-height: 1.25; color: var(--teal-ink); }
 .grades { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.grade { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: 60px; padding: 8px; border-radius: 16px; border: 1.5px solid var(--line2); background: var(--card); color: var(--ink); font-size: 14.5px; cursor: pointer; }
+.grades.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.grade { text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: 60px; padding: 8px; border-radius: 16px; border: 1.5px solid var(--line2); background: var(--card); color: var(--ink); font-size: 14.5px; cursor: pointer; }
 .grade:active { transform: translateY(1px); }
 .review-end { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding-top: 40px; padding-bottom: 40px; text-align: center; }
 .orn-big { display: inline-flex; padding: 16px; border-radius: 50%; background: var(--gold-wash); color: var(--gold-deep); }
@@ -668,5 +671,5 @@ button.vplay::after { content: ''; position: absolute; inset: -7px; }
   }
   window.botaBoot = setTimeout(botaFail, 10000);
 </script>
-<script type="module" src="./app.js?v=51d4143" onerror="botaFail()"></script>
+<script type="module" src="./app.js?v=7219176" onerror="botaFail()"></script>
 </body></html>

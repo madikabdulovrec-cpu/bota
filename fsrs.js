@@ -10,9 +10,13 @@ export const DAY = 86400000;
 const clampD = (d) => Math.min(10, Math.max(1, d));
 const initialDifficulty = (g) => clampD(W[4] - (g - 3) * W[5]);
 
+// No phrase waits longer than two months: four «Легко» in a row would send it away for years, and a
+// phrase not heard for months fades even when it was easy.
+export const MAX_DAYS = 60;
+
 function intervalDays(s) {
   const days = (s / FACTOR) * (Math.pow(RETENTION, 1 / DECAY) - 1);
-  return Math.max(1, Math.round(days));
+  return Math.min(MAX_DAYS, Math.max(1, Math.round(days)));
 }
 
 // Probability that the phrase is still remembered now (0…1).
@@ -44,3 +48,7 @@ export function review(card, g, now = Date.now()) {
 }
 
 export const isDue = (card, now = Date.now()) => !!card && card.due <= now;
+
+// A card due now that has never been rated: its first rating sets how well the phrase is known, as for
+// a new card (review() treats reps 0 so). The phrases of topics the entrance test found known start so.
+export const unrated = (now = Date.now()) => ({ s: 0, d: 0, reps: 0, lapses: 0, last: now, due: now });

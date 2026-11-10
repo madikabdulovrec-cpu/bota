@@ -473,6 +473,9 @@ button.vplay::after { content: ''; position: absolute; inset: -7px; }
 .rev-ru { font-family: var(--font-display); font-weight: 900; font-size: 24px; line-height: 1.25; }
 .rev-kk { align-self: stretch; display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 10px; margin-top: 6px; padding-top: 14px; border-top: 1.5px dashed var(--line2); }
 .rev-kk b { font-family: var(--font-display); font-weight: 900; font-size: 22px; line-height: 1.25; color: var(--teal-ink); }
+/* What the learner typed: teal-framed when right, dashed when it differs from the answer. */
+.rev-typed { align-self: center; max-width: 100%; padding: 6px 12px; border-radius: 12px; border: 1.5px dashed var(--line2); color: var(--ink2); font-size: 14px; font-weight: 600; text-align: center; overflow-wrap: anywhere; }
+.rev-typed.ok { border: 2px solid var(--teal); color: var(--teal-ink); }
 .grades { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .grades.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .grade { text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: 60px; padding: 8px; border-radius: 16px; border: 1.5px solid var(--line2); background: var(--card); color: var(--ink); font-size: 14.5px; cursor: pointer; }
@@ -696,5 +699,5 @@ button.vplay::after { content: ''; position: absolute; inset: -7px; }
   }
   window.botaBoot = setTimeout(botaFail, 10000);
 </script>
-<script type="module" src="./app.js?v=cad8f68" onerror="botaFail()"></script>
+<script type="module" src="./app.js?v=18bae69" onerror="botaFail()"></script>
 </body></html>

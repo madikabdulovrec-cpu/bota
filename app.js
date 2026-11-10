@@ -1,13 +1,13 @@
 // Бота — MVP: conversational Kazakh for Russian speakers.
 import { html, render, useState, useEffect, useLayoutEffect, useRef, useMemo, useErrorBoundary } from 'https://cdn.jsdelivr.net/npm/htm@3.1.1/preact/standalone.module.js';
-import { KINDS, CITIES, JOBS, HOBBIES, CHOICES, PEOPLE, PHRASES, TOPICS, LEVELS, RULES, RESCUE, PHRASEBOOK, BABY, BABY_GROUPS, BABY_AGES, BABY_GOAL, BABY_NOW, ENDEARMENTS, FACTS, HISTORY, RACE_APART } from './content.js?v=cad8f68';
-import * as fsrs from './fsrs.js?v=cad8f68';
-import * as voice from './voice.js?v=cad8f68';
-import * as mic from './mic.js?v=cad8f68';
-import * as stats from './stats.js?v=cad8f68';
-import { KZ_LETTERS, checkTyped, normType, plain, syllables, fillSlot } from './typing.js?v=cad8f68';
-import { CHECKS, BLOCK, SIZE, PLACE_ASK, PLACE_PASS, checkItems, placeItems, need, passes } from './exam.js?v=cad8f68';
-import { Icon, PlayGlyph, SpeakerGlyph, Sun, Logo, Bota, Avatar, Yurt, Photo, Shanyrak, Wave } from './art.js?v=cad8f68';
+import { KINDS, CITIES, JOBS, HOBBIES, CHOICES, PEOPLE, PHRASES, TOPICS, LEVELS, RULES, RESCUE, PHRASEBOOK, BABY, BABY_GROUPS, BABY_AGES, BABY_GOAL, BABY_NOW, ENDEARMENTS, FACTS, HISTORY, RACE_APART } from './content.js?v=18bae69';
+import * as fsrs from './fsrs.js?v=18bae69';
+import * as voice from './voice.js?v=18bae69';
+import * as mic from './mic.js?v=18bae69';
+import * as stats from './stats.js?v=18bae69';
+import { KZ_LETTERS, checkTyped, normType, plain, syllables, fillSlot } from './typing.js?v=18bae69';
+import { CHECKS, BLOCK, SIZE, PLACE_ASK, PLACE_PASS, checkItems, placeItems, need, passes } from './exam.js?v=18bae69';
+import { Icon, PlayGlyph, SpeakerGlyph, Sun, Logo, Bota, Avatar, Yurt, Photo, Shanyrak, Wave } from './art.js?v=18bae69';
 
 // The version of the app: tools/site.mjs gives every module address ?v=<commit>.
 const VERSION = new URL(import.meta.url).searchParams.get('v') || 'dev';
@@ -55,7 +55,8 @@ function fresh() {
     // trAuto: translations under every line from the start; otherwise a tap on a line shows its own.
     // mic: «Скажи вслух» records the phrase with the microphone where the browser allows it.
     // stats: the learner agreed to the anonymous statistics of the pilot (stats.js).
-    settings: { voice: true, trAuto: false, mic: true, stats: false },
+    // typing: replies of «Ответь», phrases to put together and answers of the memory are typed, not chosen.
+    settings: { voice: true, trAuto: false, mic: true, stats: false, typing: false },
     // fact: the key of the last fact of the day shown (its date this year); install: 'never' once the
     // learner turned down «Поставь Боту на экран»; persist: what the browser said to keeping storage;
     // remind: the time of the daily reminder the learner put into the phone's calendar; stats: 'asked'
@@ -1615,7 +1616,8 @@ function CheckPanel({ step, listen, auto, slowly, onDeaf, onDone, onHint, test }
   </div>`;
 }
 
-function PickPanel({ step, v, tr, onDone, onHint, test }) {
+// more — links of the lesson under the options («Напечатать ответ»).
+function PickPanel({ step, v, tr, onDone, onHint, test, more }) {
   const order = useMemo(() => shuffle(step.pick.map((_, i) => i)), []);
   const [sel, setSel] = useState(-1);
   const [tried, setTried] = useState([]);
@@ -1649,7 +1651,7 @@ function PickPanel({ step, v, tr, onDone, onHint, test }) {
       ? html`<button type="button" class="btn btn-primary btn-block" onClick=${() => onDone(right, false)}>Дальше</button>`
       : html`<button type="button" class="btn btn-primary btn-block" disabled=${sel < 0} onClick=${send}>
         <${Icon} name="send" size=${20} stroke=${2.4} /> Отправить</button>`}
-    <${LinkRow} items=${[test && !missed && ['Не знаю', dunno]]} />
+    <${LinkRow} items=${[test && !missed && ['Не знаю', dunno], ...(!missed && more ? more : [])]} />
   </div>`;
 }
 
@@ -1672,7 +1674,8 @@ function ChoosePanel({ step, v, tr, onDone }) {
 // the word keeps following the finger while the words around it move in the page.
 // dragHint: the line «Порядок слов можно менять пальцем» until the learner first moves a word so;
 // onDragged: that first time.
-function BuildPanel({ step, v, tr, onDone, onHint, test, dragHint, onDragged }) {
+// more — links of the lesson under the words («Напечатать»).
+function BuildPanel({ step, v, tr, onDone, onHint, test, dragHint, onDragged, more }) {
   const answer = step.build.map((w) => fill(w, v));
   const bank = useMemo(() => shuffle([...answer, ...step.extra].map((w, id) => ({ w, id }))), []);
   const [draft, setDraft] = useState([]);
@@ -1805,7 +1808,7 @@ function BuildPanel({ step, v, tr, onDone, onHint, test, dragHint, onDragged }) 
         <button type="button" class="btn btn-primary btn-block" onClick=${() => onDone(false)}>Дальше</button>`
       : html`<div class="bank" lang="kk">${bank.filter((b) => !draft.includes(b.id)).map((b) => html`
         <button type="button" class="wchip" onClick=${() => edit([...draft, b.id])}>${b.w}</button>`)}</div>`}
-    <${LinkRow} items=${[test && !missed && ['Не знаю', () => setMissed(true)]]} />
+    <${LinkRow} items=${[test && !missed && ['Не знаю', () => setMissed(true)], ...(!missed && more ? more : [])]} />
   </div>`;
 }
 
@@ -2052,7 +2055,29 @@ function PairPanel({ step, auto, onDone, onHint }) {
 // phrase instead of showing its meaning; without a Kazakh voice it falls back to the meaning.
 // In a test one slip of Kazakh letters only («Асыгып» for «Асығып») gets a hint and a second try;
 // any other mistake shows the answer. onDone(grade, message, right).
-function TypePanel({ step, v, auto, onDone, onHint, test }) {
+// The line of Kazakh letters and the message field with its send button; a letter goes in where the
+// caret is, the first letter of a message in capitals. The form around it sends.
+function TypeField({ text, setText, input, label = 'Сообщение по-казахски', placeholder = 'Сообщение…' }) {
+  const insert = (ch) => {
+    const el = input.current;
+    const start = el && el.selectionStart != null ? el.selectionStart : text.length;
+    const end = el && el.selectionEnd != null ? el.selectionEnd : text.length;
+    setText(text.slice(0, start) + (start === 0 ? ch.toUpperCase() : ch) + text.slice(end));
+    requestAnimationFrame(() => { if (el) { el.focus(); el.setSelectionRange(start + 1, start + 1); } });
+  };
+  return html`<div class="kz-keys" role="group" aria-label="Казахские буквы">${KZ_LETTERS.map((ch) => html`
+      <button type="button" class="kz-key" aria-label=${`Буква ${ch}`} onMouseDown=${(e) => e.preventDefault()} onClick=${() => insert(ch)}>${ch}</button>`)}</div>
+    <div class="type-row">
+      <label class="sr" for="type-in">${label}</label>
+      <input id="type-in" ref=${input} class="type-input" type="text" lang="kk" autocomplete="off" autocorrect="off" autocapitalize="sentences"
+        spellcheck=${false} enterkeyhint="send" placeholder=${placeholder} value=${text} onInput=${(e) => setText(e.target.value)} />
+      <button type="submit" class="send-round" aria-label="Отправить" disabled=${!text.trim()}><${Icon} name="send" size=${22} stroke=${2.4} /></button>
+    </div>`;
+}
+
+// Writing a message in Kazakh. The same panel takes a reply typed instead of chosen and a phrase typed
+// instead of put together (ask — its heading then; others — the link back to choosing).
+function TypePanel({ step, v, auto, onDone, onHint, test, ask, others }) {
   const answer = val(step.type, v);
   const answers = [answer, ...(step.alt || []).map((a) => val(a, v))];
   const dict = !!step.dict && voice.canSay(answer);
@@ -2076,14 +2101,6 @@ function TypePanel({ step, v, auto, onDone, onHint, test }) {
     const id = setTimeout(() => voice.speak(answer), 400);
     return () => clearTimeout(id);
   }, []);
-  const edit = (next) => setText(next);
-  const insert = (ch) => {
-    const el = input.current;
-    const start = el && el.selectionStart != null ? el.selectionStart : text.length;
-    const end = el && el.selectionEnd != null ? el.selectionEnd : text.length;
-    edit(text.slice(0, start) + (start === 0 ? ch.toUpperCase() : ch) + text.slice(end));
-    requestAnimationFrame(() => { if (el) { el.focus(); el.setSelectionRange(start + 1, start + 1); } });
-  };
   const check = () => {
     const typed = (input.current ? input.current.value : text).replace(/\s+/g, ' ').trim();
     if (!normType(typed) || sent.current) return;
@@ -2122,7 +2139,7 @@ function TypePanel({ step, v, auto, onDone, onHint, test }) {
     ? (missed ? null : html`<button type="button" class="btn-chip" onClick=${miss}>Не знаю</button>`)
     : (hint ? null : html`<button type="button" class="btn-chip" onClick=${showHint}>Подсказка</button>`);
   return html`<form class="panel-in" onSubmit=${(e) => { e.preventDefault(); check(); }}>
-    <div class="say-head"><span class="eyebrow">${dict ? 'ЗАПИШИ НА СЛУХ' : 'НАПИШИ ПО-КАЗАХСКИ'}</span>${head}</div>
+    <div class="say-head"><span class="eyebrow">${dict ? 'ЗАПИШИ НА СЛУХ' : ask || 'НАПИШИ ПО-КАЗАХСКИ'}</span>${head}</div>
     ${dict
       ? html`<div class="say-ctl">
           <button type="button" class="ctl" onClick=${() => voice.speak(answer)}><${SpeakerGlyph} size=${16} /> Послушать</button>
@@ -2130,14 +2147,8 @@ function TypePanel({ step, v, auto, onDone, onHint, test }) {
       : html`<p class="type-ask">«${val(step.ru, v)}»</p>`}
     ${hint || missed ? html`<div class="type-model"><span class="grow"><b class="kk" lang="kk">${answer}</b></span><${SpeakBtn} text=${answer} small /></div>` : null}
     ${missed ? html`<button type="button" class="btn btn-primary btn-block" onClick=${() => onDone(1, '', false)}>Дальше</button>` : html`
-    <div class="kz-keys" role="group" aria-label="Казахские буквы">${KZ_LETTERS.map((ch) => html`
-      <button type="button" class="kz-key" aria-label=${`Буква ${ch}`} onMouseDown=${(e) => e.preventDefault()} onClick=${() => insert(ch)}>${ch}</button>`)}</div>
-    <div class="type-row">
-      <label class="sr" for="type-in">Сообщение по-казахски</label>
-      <input id="type-in" ref=${input} class="type-input" type="text" lang="kk" autocomplete="off" autocorrect="off" autocapitalize="sentences"
-        spellcheck=${false} enterkeyhint="send" placeholder="Сообщение…" value=${text} onInput=${(e) => edit(e.target.value)} />
-      <button type="submit" class="send-round" aria-label="Отправить" disabled=${!text.trim()}><${Icon} name="send" size=${22} stroke=${2.4} /></button>
-    </div>`}
+    <${TypeField} text=${text} setText=${setText} input=${input} />
+    <${LinkRow} items=${others || []} />`}
   </form>`;
 }
 
@@ -2395,6 +2406,8 @@ function ConvScreen({ st, update, ti, ci, go, back }) {
   const firstLine = log.findIndex((m) => m.k === 'npc');
   // The meaning of a task (what to build, say or choose about yourself) is shown unless the lesson is «without hints».
   const task = tr || conv.kind !== 'free';
+  // Typing replies and phrases instead of choosing them: one setting for the whole app («Профиль»).
+  const typeMode = (on) => update((d) => { d.settings.typing = on; });
 
   let panel = null;
   if (result) {
@@ -2411,8 +2424,15 @@ function ConvScreen({ st, update, ti, ci, go, back }) {
         slowly=${listen && lines.length ? () => { mic.stopPlaying(); voice.sayAll(lines, 0.6); } : null}
         onDeaf=${listen && st.settings.voice && !guided ? cantListen : null} onHint=${hint} onDone=${() => advance([], { checked: true })} />`;
     } else if (step.pick) {
-      panel = html`<${PickPanel} key=${pos} step=${step} v=${v} tr=${tr} onHint=${hint}
-        onDone=${(o) => advance([{ k: 'me', kk: val(o.kk, v), ru: val(o.ru, v) }], { rule: step.rule, word: step.word })} />`;
+      // In «Ответь» a reply can be typed instead of chosen: its meaning is the task (typeReply).
+      const right = step.pick.find((o) => o.ok);
+      const reply = (o) => advance([{ k: 'me', kk: val(o.kk, v), ru: val(o.ru, v) }], { rule: step.rule, word: step.word });
+      const typeable = conv.kind === 'answer' && right && right.ru;
+      panel = typeable && st.settings.typing
+        ? html`<${TypePanel} key=${pos} step=${{ type: right.kk, ru: right.ru, alt: step.pick.filter((o) => o.ok && o !== right).map((o) => o.kk) }} v=${v} auto=${false}
+            ask="ОТВЕТЬ ПО-КАЗАХСКИ" onHint=${hint} others=${[['Выбрать из вариантов', () => typeMode(false)]]} onDone=${() => reply(right)} />`
+        : html`<${PickPanel} key=${pos} step=${step} v=${v} tr=${tr} onHint=${hint} onDone=${reply}
+            more=${typeable ? [['Напечатать ответ', () => typeMode(true)]] : null} />`;
     } else if (step.choose) {
       panel = html`<${ChoosePanel} key=${pos} step=${step} v=${v} tr=${task}
         onDone=${(o) => {
@@ -2420,9 +2440,15 @@ function ConvScreen({ st, update, ti, ci, go, back }) {
           advance([{ k: 'me', kk: val(o.kk, v), ru: val(o.ru, v) }], { rule: step.rule, word: o.word || step.word, ask: step.ask });
         }} />`;
     } else if (step.build) {
-      panel = html`<${BuildPanel} key=${pos} step=${step} v=${v} tr=${task} onHint=${hint}
-        dragHint=${!st.seen.drag} onDragged=${() => { if (!stRef.current.seen.drag) update((d) => { d.seen.drag = true; }); }}
-        onDone=${() => advance([{ k: 'me', kk: val(step.text, v), ru: val(step.ru, v) }], { rule: step.rule, word: step.word })} />`;
+      // A phrase can be typed instead of put together, wherever its meaning is shown (not «без подсказок»).
+      const built = () => advance([{ k: 'me', kk: val(step.text, v), ru: val(step.ru, v) }], { rule: step.rule, word: step.word });
+      const typeable = !!task;
+      panel = typeable && st.settings.typing
+        ? html`<${TypePanel} key=${pos} step=${{ type: step.text, ru: step.ru }} v=${v} auto=${false}
+            ask="НАПИШИ ОТВЕТ" onHint=${hint} others=${[['Собрать из слов', () => typeMode(false)]]} onDone=${built} />`
+        : html`<${BuildPanel} key=${pos} step=${step} v=${v} tr=${task} onHint=${hint}
+            dragHint=${!st.seen.drag} onDragged=${() => { if (!stRef.current.seen.drag) update((d) => { d.seen.drag = true; }); }}
+            more=${typeable ? [['Напечатать', () => typeMode(true)]] : null} onDone=${built} />`;
     } else if (step.say || step.own) {
       // An answer in one's own words goes to the chat as a voice message; Bota then shows the example.
       const own = !!step.own;
@@ -2929,13 +2955,23 @@ function Review({ st, update, go, only, back }) {
   const id = queue[i];
   const again = i >= size;
   const v = varsOf(st);
+  // Typing the answer (settings.typing): the field, what was typed and whether it was right.
+  const typingOn = !!st.settings.typing;
+  const typeMode = (on) => update((d) => { d.settings.typing = on; });
+  const [typeText, setTypeText] = useState('');
+  const [typedAns, setTypedAns] = useState(null);
+  const typeInput = useRef(null);
   // Keyboard users stay on the buttons of the moment: «Показать ответ», then the grades. Not on the
-  // first card, which the page has only just opened with.
+  // first card, which the page has only just opened with. Typing, the field of each card takes the focus.
   useEffect(() => {
+    if (typingOn && !open) {
+      try { if (typeInput.current) typeInput.current.focus({ preventScroll: true }); } catch (e) { /* focus is a convenience */ }
+      return;
+    }
     if (i === 0 && !open) return;
     const first = bottom.current && bottom.current.querySelector('button');
     if (first) first.focus({ preventScroll: true });
-  }, [i, open]);
+  }, [i, open, typingOn]);
   const head = html`<${TopBar} title="Освежить память" sub=${queue.length && i < queue.length ? `${i + 1} из ${queue.length}` : 'орнамент памяти'}
     onBack=${() => go(home)} backLabel=${forBaby ? 'Назад к малышу' : 'Вернуться в «Мой круг»'} />`;
 
@@ -2991,6 +3027,14 @@ function Review({ st, update, go, only, back }) {
     setOpen(true);
     if (st.settings.voice) voice.speak(right);
   };
+  // A typed answer opens the card too; the learner still rates how it went.
+  const sendTyped = (e) => {
+    e.preventDefault();
+    const text = typeText.replace(/\s+/g, ' ').trim();
+    if (!normType(text)) return;
+    setTypedAns({ text: cap(text), ok: checkTyped(text, [right]).ok });
+    reveal();
+  };
   const rate = (g) => {
     // A second tap on the same spot must not rate the next card as well.
     if (Date.now() - lastTap.current < 350) return;
@@ -3020,6 +3064,8 @@ function Review({ st, update, go, only, back }) {
     if (next !== queue) setQueue(next);
     voice.stop();
     setOpen(false);
+    setTypeText('');
+    setTypedAns(null);
     setI(i + 1);
   };
   const card = st.mem[id];
@@ -3034,12 +3080,20 @@ function Review({ st, update, go, only, back }) {
         <b class="rev-ru">${fill(ph.ru, v)}</b>
         ${open ? html`<span class="rev-kk"><b lang="kk">${right}</b><${SpeakBtn} text=${right} /></span>` : null}
       </div>
-      <p class="muted sm center" role="status">${open ? 'Как вспомнилось?' : forBaby ? 'Вспомните и скажите вслух — потом проверьте себя.' : 'Вспомни и скажи вслух — потом проверь себя.'}</p>
+      ${open && typedAns ? html`<span class=${'rev-typed' + (typedAns.ok ? ' ok' : '')} lang="kk">${typedAns.ok ? 'Верно: ' : 'Ты написал(а): '}${typedAns.text}</span>` : null}
+      <p class="muted sm center" role="status">${open ? (typedAns && !typedAns.ok ? 'Сверь с ответом. Как вспомнилось?' : 'Как вспомнилось?')
+        : typingOn ? (forBaby ? 'Напишите по-казахски — потом проверьте себя.' : 'Напиши по-казахски — потом проверь себя.')
+        : forBaby ? 'Вспомните и скажите вслух — потом проверьте себя.' : 'Вспомни и скажи вслух — потом проверь себя.'}</p>
     </div>
     <div class="bottom pad" ref=${bottom}>${open
       ? html`<div class=${'grades' + (choices.length === 3 ? ' three' : '')} role="group" aria-label="Как вспомнилось">${choices.map(([g, label]) => html`
           <button type="button" class="grade" onClick=${() => rate(g)}><b>${label}</b><span class="muted sm">${when(g)}</span></button>`)}</div>`
-      : html`<button type="button" class="btn btn-primary btn-block" onClick=${reveal}>Показать ответ</button>`}</div>
+      : typingOn
+      ? html`<form class="panel-in" onSubmit=${sendTyped}>
+          <${TypeField} text=${typeText} setText=${setTypeText} input=${typeInput} label="Ответ по-казахски" placeholder="По-казахски…" />
+          <${LinkRow} items=${[['Показать ответ', reveal], ['Без печати', () => typeMode(false)]]} /></form>`
+      : html`<button type="button" class="btn btn-primary btn-block" onClick=${reveal}>Показать ответ</button>
+          <${LinkRow} items=${[['Напечатать ответ', () => typeMode(true)]]} />`}</div>
   </main>`;
 }
 
@@ -4118,6 +4172,10 @@ function Profile({ st, update, go }) {
         <div class="set-row">
           <span class="grow"><b>Перевод сразу</b><span class="muted sm">иначе — по нажатию на фразу</span></span>
           <${Toggle} on=${st.settings.trAuto} label="Перевод сразу" onChange=${(on) => update((d) => { d.settings.trAuto = on; })} />
+        </div>
+        <div class="set-row">
+          <span class="grow"><b>Печатать ответы</b><span class="muted sm">в «Ответь», «Собери фразу» и в повторении — клавиатурой, а не выбором</span></span>
+          <${Toggle} on=${!!st.settings.typing} label="Печатать ответы" onChange=${(on) => update((d) => { d.settings.typing = on; })} />
         </div>
         <div class="set-row">
           <span class="grow"><b>Режим «Малыш»</b><span class="muted sm">${st.profile.mode === 'baby' ? 'своя вкладка, приложение открывается с неё' : 'фразы для родителей — в «Разговорнике»'}</span></span>

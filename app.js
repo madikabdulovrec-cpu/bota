@@ -1,13 +1,13 @@
 // Бота — MVP: conversational Kazakh for Russian speakers.
 import { html, render, useState, useEffect, useLayoutEffect, useRef, useMemo, useErrorBoundary } from 'https://cdn.jsdelivr.net/npm/htm@3.1.1/preact/standalone.module.js';
-import { KINDS, CITIES, JOBS, HOBBIES, CHOICES, PEOPLE, PHRASES, TOPICS, LEVELS, RULES, RESCUE, PHRASEBOOK, BABY, BABY_GROUPS, BABY_AGES, BABY_GOAL, BABY_NOW, ENDEARMENTS, FACTS, HISTORY, RACE_APART } from './content.js?v=18bae69';
-import * as fsrs from './fsrs.js?v=18bae69';
-import * as voice from './voice.js?v=18bae69';
-import * as mic from './mic.js?v=18bae69';
-import * as stats from './stats.js?v=18bae69';
-import { KZ_LETTERS, checkTyped, normType, plain, syllables, fillSlot } from './typing.js?v=18bae69';
-import { CHECKS, BLOCK, SIZE, PLACE_ASK, PLACE_PASS, checkItems, placeItems, need, passes } from './exam.js?v=18bae69';
-import { Icon, PlayGlyph, SpeakerGlyph, Sun, Logo, Bota, Avatar, Yurt, Photo, Shanyrak, Wave } from './art.js?v=18bae69';
+import { KINDS, CITIES, JOBS, HOBBIES, CHOICES, PEOPLE, PHRASES, TOPICS, LEVELS, RULES, RESCUE, PHRASEBOOK, BABY, BABY_GROUPS, BABY_AGES, BABY_GOAL, BABY_NOW, ENDEARMENTS, FACTS, HISTORY, RACE_APART } from './content.js?v=36a499f';
+import * as fsrs from './fsrs.js?v=36a499f';
+import * as voice from './voice.js?v=36a499f';
+import * as mic from './mic.js?v=36a499f';
+import * as stats from './stats.js?v=36a499f';
+import { KZ_LETTERS, checkTyped, normType, plain, syllables, fillSlot } from './typing.js?v=36a499f';
+import { CHECKS, BLOCK, SIZE, PLACE_ASK, PLACE_PASS, checkItems, placeItems, need, passes } from './exam.js?v=36a499f';
+import { Icon, PlayGlyph, SpeakerGlyph, Sun, Logo, Bota, Avatar, Yurt, Photo, Shanyrak, Wave } from './art.js?v=36a499f';
 
 // The version of the app: tools/site.mjs gives every module address ?v=<commit>.
 const VERSION = new URL(import.meta.url).searchParams.get('v') || 'dev';
@@ -2305,7 +2305,7 @@ function ConvScreen({ st, update, ti, ci, go, back }) {
       added.forEach((id) => { if (!d.mem[id]) d.mem[id] = fsrs.review(null, 2, now); });
     });
     track.current.done = true;
-    stats.track('lesson_done', { id: conv.id, kind: conv.kind, first, closed, s: Math.round((now - track.current.t0) / 1000), typed: typed.current.n, clean: typed.current.clean });
+    stats.track('lesson_done', { id: conv.id, kind: conv.kind, first, closed, s: Math.round((now - track.current.t0) / 1000), typed: typed.current.n, clean: typed.current.clean, tp: stRef.current.settings.typing ? 1 : 0 });
     setLog(openAll);
     setResult({ added: added.length, typed: typed.current.n, clean: typed.current.clean, first, closed });
   }
@@ -3059,7 +3059,7 @@ function Review({ st, update, go, only, back }) {
     if (again && g >= 2) grades.current[5] += 1;
     if (last) {
       const [g1, g2, g3, g4, words, later] = grades.current;
-      stats.track('review_done', { n: size, words, g1, g2, g3, g4, again: next.length - size, later, closed: closes });
+      stats.track('review_done', { n: size, words, g1, g2, g3, g4, again: next.length - size, later, closed: closes, tp: typingOn ? 1 : 0 });
     }
     if (next !== queue) setQueue(next);
     voice.stop();

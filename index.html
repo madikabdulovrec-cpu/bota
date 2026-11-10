@@ -241,10 +241,17 @@ button.vplay::after { content: ''; position: absolute; inset: -7px; }
 .conv-who { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
 .conv-who b { font-size: 15.5px; font-weight: 800; line-height: 1.1; }
 .conv-prog { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--muted); }
-.dots { display: inline-flex; gap: 5px; }
-.dots i { width: 8px; height: 8px; border-radius: 2px; transform: rotate(45deg); background: var(--line2); }
-.dots i.d { background: var(--teal); }
-.dots i.c { background: var(--gold); }
+/* The path of a lesson, a test or a review under the band: a thin line that fills with teal and a rhombus
+   for every answer — teal when given, gold for the one to give now. */
+.conv-head.with-track, .topbar.with-track { border-bottom: none; padding-bottom: 4px; }
+.track-wrap { flex-shrink: 0; padding-top: 2px; padding-bottom: 10px; background: var(--card); border-bottom: 1.5px solid var(--line); }
+.track { position: relative; height: 16px; margin: 0 8px 0 2px; }
+.track-line { position: absolute; left: 0; right: 0; top: 50%; height: 3px; margin-top: -1.5px; border-radius: 2px; background: var(--line2); overflow: hidden; }
+.track-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 2px; background: var(--teal); transition: width 0.35s ease-out; }
+.track-mark { position: absolute; top: 50%; width: 11px; height: 11px; border-radius: 2px; border: 2px solid var(--line2); background: var(--card); transform: translate(-50%, -50%) rotate(45deg); transition: background 0.2s, border-color 0.2s, box-shadow 0.2s; }
+.track-mark.d { border-color: var(--teal); background: var(--teal); }
+.track-mark.c { border-color: var(--gold); background: var(--gold); box-shadow: 0 0 0 3px var(--gold-wash); }
+@media (prefers-reduced-motion: reduce) { .track-fill, .track-mark { transition: none; } }
 .tr-btn { flex-shrink: 0; width: 44px; height: 44px; border-radius: 12px; border: 1.5px solid var(--line); background: var(--card); color: var(--muted); font-size: 12.5px; font-weight: 800; cursor: pointer; }
 .tr-btn.on { border-color: var(--teal-line); background: var(--teal-soft); color: var(--teal-ink); }
 
@@ -699,5 +706,5 @@ button.vplay::after { content: ''; position: absolute; inset: -7px; }
   }
   window.botaBoot = setTimeout(botaFail, 10000);
 </script>
-<script type="module" src="./app.js?v=36a499f" onerror="botaFail()"></script>
+<script type="module" src="./app.js?v=7414f40" onerror="botaFail()"></script>
 </body></html>

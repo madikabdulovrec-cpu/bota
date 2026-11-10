@@ -1,13 +1,13 @@
 // Бота — MVP: conversational Kazakh for Russian speakers.
 import { html, render, useState, useEffect, useLayoutEffect, useRef, useMemo, useErrorBoundary } from 'https://cdn.jsdelivr.net/npm/htm@3.1.1/preact/standalone.module.js';
-import { KINDS, CITIES, JOBS, HOBBIES, CHOICES, PEOPLE, PHRASES, TOPICS, LEVELS, RULES, RESCUE, PHRASEBOOK, BABY, BABY_GROUPS, BABY_AGES, BABY_GOAL, BABY_NOW, ENDEARMENTS, FACTS, HISTORY, RACE_APART } from './content.js?v=36a499f';
-import * as fsrs from './fsrs.js?v=36a499f';
-import * as voice from './voice.js?v=36a499f';
-import * as mic from './mic.js?v=36a499f';
-import * as stats from './stats.js?v=36a499f';
-import { KZ_LETTERS, checkTyped, normType, plain, syllables, fillSlot } from './typing.js?v=36a499f';
-import { CHECKS, BLOCK, SIZE, PLACE_ASK, PLACE_PASS, checkItems, placeItems, need, passes } from './exam.js?v=36a499f';
-import { Icon, PlayGlyph, SpeakerGlyph, Sun, Logo, Bota, Avatar, Yurt, Photo, Shanyrak, Wave } from './art.js?v=36a499f';
+import { KINDS, CITIES, JOBS, HOBBIES, CHOICES, PEOPLE, PHRASES, TOPICS, LEVELS, RULES, RESCUE, PHRASEBOOK, BABY, BABY_GROUPS, BABY_AGES, BABY_GOAL, BABY_NOW, ENDEARMENTS, FACTS, HISTORY, RACE_APART } from './content.js?v=7414f40';
+import * as fsrs from './fsrs.js?v=7414f40';
+import * as voice from './voice.js?v=7414f40';
+import * as mic from './mic.js?v=7414f40';
+import * as stats from './stats.js?v=7414f40';
+import { KZ_LETTERS, checkTyped, normType, plain, syllables, fillSlot } from './typing.js?v=7414f40';
+import { CHECKS, BLOCK, SIZE, PLACE_ASK, PLACE_PASS, checkItems, placeItems, need, passes } from './exam.js?v=7414f40';
+import { Icon, PlayGlyph, SpeakerGlyph, Sun, Logo, Bota, Avatar, Yurt, Photo, Shanyrak, Wave } from './art.js?v=7414f40';
 
 // The version of the app: tools/site.mjs gives every module address ?v=<commit>.
 const VERSION = new URL(import.meta.url).searchParams.get('v') || 'dev';
@@ -854,12 +854,13 @@ function TabBar({ tab, go, st }) {
   </nav>`;
 }
 
-function TopBar({ title, sub, subLang, onBack, backLabel, right }) {
-  return html`<header class="topbar pad">
+// track — the path under the band (Track), for a review card by card.
+function TopBar({ title, sub, subLang, onBack, backLabel, right, track }) {
+  return html`<header class=${'topbar pad' + (track ? ' with-track' : '')}>
     ${onBack ? html`<button type="button" class="icon-btn" aria-label=${backLabel || 'Назад'} onClick=${onBack}><${Icon} name="back" size=${24} stroke=${2.2} /></button>` : null}
     <span class="topbar-title"><b>${title}</b>${sub ? html`<span class="muted sm" lang=${subLang || null}>${sub}</span>` : null}</span>
     ${right || null}
-  </header>`;
+  </header>${track ? html`<div class="track-wrap pad">${track}</div>` : null}`;
 }
 
 // The streak on the main screen: the month's шаңырақ in small — a уық for every day of practice — and
@@ -1559,6 +1560,19 @@ function Msg({ m, tr, all, hint, topic, onRule, onTr, onShow }) {
 // chat (onHint), the right one goes on with the conversation. No green or red plates.
 
 // A row of quiet links under a panel: [label, onClick] pairs; empty ones are left out.
+// The path of a lesson, a test or a review: a thin line across the screen with a rhombus for every
+// answer of the learner, as the rhombi of the рубежи on the map. The line fills with teal up to the
+// answers given, the rhombus of the one to give now is gold. No bar with a cross and hearts: there are no
+// lives (principle 1). Past 14 steps only the line stays.
+function Track({ done, total, label }) {
+  const n = Math.max(1, total);
+  const k = Math.max(0, Math.min(done, n));
+  return html`<div class="track" role="progressbar" aria-label=${label} aria-valuemin="0" aria-valuemax=${n} aria-valuenow=${k}>
+    <span class="track-line"><span class="track-fill" style=${`width:${(100 * k) / n}%`}></span></span>
+    ${n <= 14 ? Array.from({ length: n }, (_, i) => html`<i class=${'track-mark' + (i < k ? ' d' : i === k ? ' c' : '')} style=${`left:${(100 * (i + 1)) / n}%`}></i>`) : null}
+  </div>`;
+}
+
 function LinkRow({ items }) {
   const list = items.filter(Boolean);
   if (!list.length) return null;
@@ -2490,13 +2504,13 @@ function ConvScreen({ st, update, ti, ci, go, back }) {
   }, [panelKey]);
 
   return html`<main class="screen conv">
-    <header class="conv-head pad">
+    <header class="conv-head pad with-track">
       <button type="button" class="icon-btn" aria-label="Назад к теме" onClick=${() => go('topic', { ti, back })}><${Icon} name="back" size=${24} stroke=${2.2} /></button>
       <${Avatar} who=${t.who} size=${40} />
-      <span class="conv-who"><b>${person.name}</b>
-        <span class="conv-prog"><span class="dots" aria-hidden="true">${Array.from({ length: turns }, (_, i) => html`<i class=${i < turnsDone || result ? 'd' : i === turnsDone ? 'c' : ''}></i>`)}</span>${label}</span></span>
+      <span class="conv-who"><b>${person.name}</b><span class="conv-prog">${label}</span></span>
       <button type="button" class=${'tr-btn' + (tr ? ' on' : '')} aria-pressed=${tr} aria-label="Перевод на русский" onClick=${() => setTr(!tr)}>Ру</button>
     </header>
+    <div class="track-wrap pad"><${Track} done=${result ? turns : turnsDone} total=${turns} label="Ход урока" /></div>
     <div class="scroll chat pad" ref=${scroller}>
       <div class="msgs" role="log" aria-live="polite">
         ${showNoVoice ? html`<div class="banner"><span>${SITE_BUILD && voice.waiting() ? 'Здесь фразы пока без звука: записи не загрузились. Проверь интернет — звук появится сам.'
@@ -2820,12 +2834,18 @@ function TestScreen({ st, update, go, id, back }) {
   const at = it || items[items.length - 1];
   const label = result ? 'готово' : place ? `${at ? CHECKS[at.seg].level : ''} · вопрос ${idx + 1}` : `вопрос ${Math.min(idx + 1, items.length)} из ${items.length}`;
   const kind = place ? 'Входной тест · до 7 минут' : cp.final ? `Итог круга · ${topicsOnly(lv) ? `темы ${lv.id}` : lv.id}` : `Рубеж · ${lv.id} · ${cp.topics.length} ${plural(cp.topics.length, TOPIC_W)}`;
+  // The entrance test does not know how many questions it will ask: its path is the stretches of the
+  // course, A1 to B2, and a rhombus is passed with its stretch.
+  const track = place
+    ? html`<${Track} done=${result ? result.at : at ? at.seg : 0} total=${CHECKS.length} label="Отрезки курса во входном тесте" />`
+    : html`<${Track} done=${result ? items.length : idx} total=${items.length} label="Вопросы" />`;
   return html`<main class="screen conv">
-    <header class="conv-head pad">
+    <header class="conv-head pad with-track">
       <button type="button" class="icon-btn" aria-label="Выйти" onClick=${() => go(back || 'home')}><${Icon} name="back" size=${24} stroke=${2.2} /></button>
       ${place ? html`<${Bota} size=${40} />` : html`<span class="test-ic"><${Icon} name="gate" size=${20} /></span>`}
       <span class="conv-who"><b>${title}</b><span class="conv-prog">${label}</span></span>
     </header>
+    <div class="track-wrap pad">${track}</div>
     <div class="scroll chat pad" ref=${scroller}>
       <div class="msgs" role="log" aria-live="polite">
         <span class="conv-kind">${kind}</span>
@@ -2973,7 +2993,8 @@ function Review({ st, update, go, only, back }) {
     if (first) first.focus({ preventScroll: true });
   }, [i, open, typingOn]);
   const head = html`<${TopBar} title="Освежить память" sub=${queue.length && i < queue.length ? `${i + 1} из ${queue.length}` : 'орнамент памяти'}
-    onBack=${() => go(home)} backLabel=${forBaby ? 'Назад к малышу' : 'Вернуться в «Мой круг»'} />`;
+    onBack=${() => go(home)} backLabel=${forBaby ? 'Назад к малышу' : 'Вернуться в «Мой круг»'}
+    track=${queue.length && i < queue.length ? html`<${Track} done=${i} total=${queue.length} label="Карточки повторения" />` : null} />`;
 
   if (!queue.length || i >= queue.length) {
     const nd = nextDue(st);

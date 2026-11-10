@@ -2,8 +2,8 @@
 // heard and a question about them, a reply to choose or to put together, a message to write, a phrase
 // to say from memory — so they hold no Kazakh of their own, and everything in them has passed the
 // checks of the lessons. No DOM here: tools/validate.mjs tests this module in Node.
-import { TOPICS, PHRASES, CHECKPOINTS } from './content.js?v=7414f40';
-import { normType } from './typing.js?v=7414f40';
+import { TOPICS, PHRASES, CHECKPOINTS } from './content.js?v=8d0f9a3';
+import { normType } from './typing.js?v=8d0f9a3';
 
 const PLAYABLE = TOPICS.filter((t) => !t.soon);
 const TOPIC_AT = new Map(PLAYABLE.map((t, i) => [t.id, i]));

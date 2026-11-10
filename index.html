@@ -393,10 +393,10 @@ button.vplay::after { content: ''; position: absolute; inset: -7px; }
 .home-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; }
 .streak { flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; padding: 4px 11px 4px 6px; border-radius: 16px; background: var(--card); border: 1.5px solid var(--gold-line); color: var(--gold-ink); font-family: inherit; font-size: 13px; font-weight: 800; cursor: pointer; }
 .map { position: relative; width: 100%; max-width: 342px; margin: 0 auto; aspect-ratio: 1 / 1; }
-/* Short phones (iPhone SE): the circle is smaller, so the main button of the card stays above the tabs. */
-@media (max-height: 700px) { .map { max-width: 290px; } .home { gap: 12px; padding-top: 12px; } .home-head .h1 { font-size: 22px; } }
-/* Safari on an iPhone SE shows about 550 px: the circle and its people shrink, so that the main button of the card stays above the tabs. */
-@media (max-height: 620px) { .map { max-width: 220px; } .map .av-btn { transform: translate(-50%, calc(-1 * var(--half))) scale(0.76); } .home { gap: 8px; padding-top: 8px; } .level span { display: none; } .card.next { padding: 12px 16px; gap: 8px; } }
+/* Short phones (iPhone SE): the circle is smaller, so the icons under it stay above the tabs. */
+@media (max-height: 700px) { .map { max-width: 310px; } .home { gap: 12px; padding-top: 12px; } .home-head .h1 { font-size: 22px; } }
+/* Safari on an iPhone SE shows about 550 px: the circle and its people shrink, so that the icons under it stay above the tabs. */
+@media (max-height: 620px) { .map { max-width: 250px; } .map .av-btn { transform: translate(-50%, calc(-1 * var(--half))) scale(0.84); } .home { gap: 8px; padding-top: 8px; padding-bottom: 6px; } .level span { display: none; } }
 .map-svg { position: absolute; inset: 0; width: 100%; height: 100%; }
 .ring1 { fill: none; stroke: var(--line2); stroke-width: 3; }
 .ring1-done { fill: none; stroke: var(--teal); stroke-width: 3; stroke-linecap: round; }
@@ -448,6 +448,18 @@ button.vplay::after { content: ''; position: absolute; inset: -7px; }
 .mem-row .grow { display: block; }
 .mem-ic { display: inline-flex; color: var(--gold-deep); }
 .mem-row > svg:last-child { color: var(--teal-ink); flex-shrink: 0; }
+/* What to do, under the circle: big icons with a short caption, the captions on one line. The main one
+   in the middle is larger and teal; the memory is on gold, «Бәйге» on soft teal. Flat, no 3D. */
+.dock { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; gap: 6px; }
+.dock-btn { display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: 0; padding: 6px 0 0; border: none; background: none; color: var(--ink2); font: inherit; font-size: 12.5px; font-weight: 700; line-height: 1.2; text-align: center; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.dock-ic { position: relative; width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--teal-soft); color: var(--teal-ink); transition: transform 0.12s; }
+.dock-glyph { display: inline-flex; }
+.dock-btn.dock-mem .dock-ic { background: var(--gold-soft); color: var(--gold-deep); }
+.dock-btn.dock-main { color: var(--teal-ink); font-size: 13.5px; font-weight: 800; }
+.dock-btn.dock-main .dock-ic { width: 72px; height: 72px; background: var(--teal); color: var(--on-teal); box-shadow: 0 0 0 6px var(--teal-wash); }
+.dock-btn:active .dock-ic { transform: scale(0.94); }
+.dock-badge { position: absolute; top: -3px; right: -6px; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 11px; border: 2px solid var(--bg); background: var(--gold); color: #3A2A05; font-size: 11.5px; font-weight: 800; line-height: 18px; text-align: center; }
+.dock-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* topic */
 .topic { display: flex; flex-direction: column; gap: 16px; padding-top: 16px; padding-bottom: 20px; }
@@ -706,5 +718,5 @@ button.vplay::after { content: ''; position: absolute; inset: -7px; }
   }
   window.botaBoot = setTimeout(botaFail, 10000);
 </script>
-<script type="module" src="./app.js?v=7414f40" onerror="botaFail()"></script>
+<script type="module" src="./app.js?v=8d0f9a3" onerror="botaFail()"></script>
 </body></html>

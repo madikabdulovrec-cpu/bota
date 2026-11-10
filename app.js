@@ -1,13 +1,13 @@
 // Бота — MVP: conversational Kazakh for Russian speakers.
 import { html, render, useState, useEffect, useLayoutEffect, useRef, useMemo, useErrorBoundary } from 'https://cdn.jsdelivr.net/npm/htm@3.1.1/preact/standalone.module.js';
-import { KINDS, CITIES, JOBS, HOBBIES, CHOICES, PEOPLE, PHRASES, TOPICS, LEVELS, RULES, RESCUE, PHRASEBOOK, BABY, BABY_GROUPS, BABY_AGES, BABY_GOAL, BABY_NOW, ENDEARMENTS, FACTS, HISTORY, RACE_APART } from './content.js?v=7414f40';
-import * as fsrs from './fsrs.js?v=7414f40';
-import * as voice from './voice.js?v=7414f40';
-import * as mic from './mic.js?v=7414f40';
-import * as stats from './stats.js?v=7414f40';
-import { KZ_LETTERS, checkTyped, normType, plain, syllables, fillSlot } from './typing.js?v=7414f40';
-import { CHECKS, BLOCK, SIZE, PLACE_ASK, PLACE_PASS, checkItems, placeItems, need, passes } from './exam.js?v=7414f40';
-import { Icon, PlayGlyph, SpeakerGlyph, Sun, Logo, Bota, Avatar, Yurt, Photo, Shanyrak, Wave } from './art.js?v=7414f40';
+import { KINDS, CITIES, JOBS, HOBBIES, CHOICES, PEOPLE, PHRASES, TOPICS, LEVELS, RULES, RESCUE, PHRASEBOOK, BABY, BABY_GROUPS, BABY_AGES, BABY_GOAL, BABY_NOW, ENDEARMENTS, FACTS, HISTORY, RACE_APART } from './content.js?v=8d0f9a3';
+import * as fsrs from './fsrs.js?v=8d0f9a3';
+import * as voice from './voice.js?v=8d0f9a3';
+import * as mic from './mic.js?v=8d0f9a3';
+import * as stats from './stats.js?v=8d0f9a3';
+import { KZ_LETTERS, checkTyped, normType, plain, syllables, fillSlot } from './typing.js?v=8d0f9a3';
+import { CHECKS, BLOCK, SIZE, PLACE_ASK, PLACE_PASS, checkItems, placeItems, need, passes } from './exam.js?v=8d0f9a3';
+import { Icon, PlayGlyph, SpeakerGlyph, Sun, Logo, Bota, Avatar, Yurt, Photo, Shanyrak, Wave } from './art.js?v=8d0f9a3';
 
 // The version of the app: tools/site.mjs gives every module address ?v=<commit>.
 const VERSION = new URL(import.meta.url).searchParams.get('v') || 'dev';
@@ -1209,63 +1209,72 @@ function CircleMap({ st, go, level, onList }) {
   </div>`;
 }
 
-function NextCard({ st, go, level, setLevel }) {
+// Under the circle — what to do, as big icons with a short caption instead of a card and rows of text.
+// In the middle, larger: what to do now — the next step of the way, or the memory while it leads; on
+// the left the other one of the two, on the right «Бәйге». Whose lesson and which comes in words only
+// to a screen reader: on the circle above, the person of the next step is the one in gold.
+function HomeDock({ st, go, level, setLevel }) {
   const nx = nextUp(st, level);
+  const all = Object.keys(st.mem).filter((id) => phrase(id));
+  const due = dueList(st);
+  // The ornament (қошқар мүйіз) fades with the share of phrases waiting to be refreshed.
+  const memory = all.length ? {
+    id: 'mem', icon: 'ornament', label: 'Память', badge: due.length, fade: Math.min(1, due.length / all.length),
+    more: due.length ? `${cardsText(due)} ${agree(due, 'тускнеет', 'тускнеют')}` : `${cardsText(all)}, всё свежее`,
+    run: () => go('review'),
+  } : null;
+  // The mixed race appears with the second open topic: with one, it would repeat the race of that topic,
+  // which its own screen offers.
+  const best = st.race.best.mix;
+  const race = raceTopics(st).length >= 2 ? {
+    id: 'race', icon: 'flag', label: html`<span lang="kk">Бәйге</span> · скачки`,
+    more: `пары слов на время${best ? `, рекорд ${raceTime(best)}` : ''}`, run: () => go('race'),
+  } : null;
+  const step = (main) => {
+    const run = () => goStep(go, nx);
+    const cp = nx.cp;
+    if (cp) {
+      return { id: 'step', icon: 'gate', label: cp.final ? 'Итог круга' : 'Рубеж', run,
+        more: cp.final ? `${cpSize(cp)} ${plural(cpSize(cp), Q_W)} по всем темам круга` : `${cpPeople(cp)} спросят, что запомнилось` };
+    }
+    const first = Object.keys(st.done).length === 0;
+    return { id: 'step', icon: KINDS[nx.c.kind].icon, run,
+      label: main ? (first ? 'Начать' : 'Продолжить') : isSkill(nx.c) ? 'Урок' : 'Разговор',
+      more: `${nextTitle(nx)} — ${lower(nx.t.title)}, урок ${nx.ci + 1} из ${nx.t.convs.length}` };
+  };
+  let main = null;
+  let side = memory;
+  let links = [];
   if (!nx) {
     const lv = levelOf(level);
     const after = LEVELS[LEVELS.indexOf(lv) + 1];
-    const count = PLAYABLE.filter((t) => t.level === level).length;
-    const open = after && !after.soon;
     // Every step is behind, but the итог круга is not passed yet: the circle closes with it.
     const fin = CHECKS.find((cp) => cp.level === level && cp.final);
     const fs = fin ? cpState(st, fin) : {};
     if (fin && !fs.pass) {
-      return html`<section class="card next">
-        <span class="muted sm">${lv.id} · итог круга: ${fs.ok} из ${fs.of}</span>
-        <b class="h3">Круг закроется от ${need(fs.of)} из ${fs.of}. Освежи фразы — и попробуй ещё раз</b>
-        <button type="button" class="btn btn-primary btn-block" onClick=${() => go('test', { id: fin.id })}><${Icon} name="gate" size=${20} /> Пройти итог ещё раз</button>
-        <${LinkRow} items=${[dueList(st).length && ['Освежить память', () => go('review')], open && [`Круг «${after.title}»`, () => setLevel(after.id)]]} />
-      </section>`;
+      main = { id: 'step', icon: 'gate', label: 'Итог круга', run: () => go('test', { id: fin.id }),
+        more: `пройти ещё раз — было ${fs.ok} из ${fs.of}, круг закроется от ${need(fs.of)}` };
+    } else if (after && !after.soon) {
+      main = { id: 'step', icon: 'next', label: `Круг «${after.tab}»`, run: () => setLevel(after.id),
+        more: topicsOnly(lv) ? `все темы круга «${lv.title}» пройдены` : `круг ${lv.of} пройден` };
+    } else if (memory) {
+      main = { ...memory, label: 'Освежить' };
+      side = null;
     }
-    return html`<section class="card next">
-      <span class="muted sm">${topicsOnly(lv) ? `темы уровня ${lv.id} · итог круга взят` : `${lv.id} · все ${count} тем пройдены`}</span>
-      <b class="h3">${topicsOnly(lv) ? `Все ${count} тем круга «${lv.title}» пройдены!` : `Круг ${lv.of} пройден!`}${after ? ` Следующий круг — ${after.title.toLowerCase()}, ${topicsOnly(after) ? `темы ${after.id}` : after.id}${open ? '' : ' — готовится'}` : ''}</b>
-      ${open ? html`<button type="button" class="btn btn-primary btn-block" onClick=${() => setLevel(after.id)}>Перейти в круг «${after.title}»</button>`
-        : html`<button type="button" class="btn btn-primary btn-block" onClick=${() => go('review')}>Освежить память</button>`}
-    </section>`;
+  } else if (memLeads(st)) {
+    main = { ...memory, label: 'Освежить' };
+    side = step(false);
+  } else {
+    main = step(true);
+    // A newcomer who knows some Kazakh already can start further on.
+    if (!Object.keys(st.done).length && !st.place.day) links = [['Уже знаю основы — проверить уровень', () => go('test', { id: 'place' })]];
   }
-  const first = Object.keys(st.done).length === 0;
-  const step = () => goStep(go, nx);
-  const cp = nx.cp;
-  if (memLeads(st)) {
-    const due = dueList(st);
-    // Not the first review today: more waits than one review takes.
-    const more = !!st.reviews[dayKey()];
-    return html`<section class="card next">
-      <span class="muted sm">сначала — память, потом ${cp ? (cp.final ? 'итог круга' : 'рубеж') : isSkill(nx.c) ? 'урок' : 'разговор'}</span>
-      <b class="h3">${more ? 'Ещё ' : ''}${cardsText(due)} ${agree(due, 'ждёт', 'ждут')} повторения</b>
-      <button type="button" class="btn btn-primary btn-block" onClick=${() => go('review')}><${Icon} name="ornament" size=${20} /> ${more ? `Освежить ещё ${REVIEW_N}` : 'Освежить память'}</button>
-      <${LinkRow} items=${[[skipLabel(nx), step]]} />
-    </section>`;
-  }
-  if (cp) {
-    return html`<section class="card next">
-      <span class="muted sm">${cp.final ? `итог круга · ${cpSize(cp)} ${plural(cpSize(cp), Q_W)} по всем темам` : `рубеж · ${cp.topics.length} ${plural(cp.topics.length, TOPIC_W)} позади`}</span>
-      <b class="h3">${cp.final ? 'Слушать, читать, писать и говорить — как в блоках КАЗТЕСТ' : `${cpPeople(cp)} спросят, что запомнилось`}</b>
-      <button type="button" class="btn btn-primary btn-block" onClick=${step}><${Icon} name="gate" size=${20} /> ${cp.final ? 'Начать итог круга' : 'Начать рубеж'}</button>
-    </section>`;
-  }
-  const kind = nx.c.kind;
-  // A newcomer who knows some Kazakh already can start further on.
-  const placeLink = first && !st.place.day ? [['Уже знаю основы — проверить уровень', () => go('test', { id: 'place' })]] : [];
-  return html`<section class="card next">
-    <span class="muted sm">${lower(nx.t.title)} · урок ${nx.ci + 1} из ${nx.t.convs.length}</span>
-    <b class="h3">${nextTitle(nx)}</b>
-    <button type="button" class="btn btn-primary btn-block" onClick=${step}>
-      <${Icon} name=${isSkill(nx.c) ? KINDS[kind].icon : 'chat'} size=${20} /> ${first ? 'Начать первый разговор' : isSkill(nx.c) ? 'Начать урок' : 'Продолжить разговор'}
-    </button>
-    <${LinkRow} items=${placeLink} />
-  </section>`;
+  const btn = (it, cls) => (it ? html`<button type="button" class=${`dock-btn dock-${cls} dock-${it.id}`} onClick=${it.run}>
+      <span class="dock-ic"><span class="dock-glyph" style=${it.fade && cls === 'side' ? `opacity:${(1 - 0.6 * it.fade).toFixed(2)}` : null}><${Icon} name=${it.icon} size=${cls === 'main' ? 30 : 24} /></span>
+        ${it.badge ? html`<span class="dock-badge" aria-hidden="true">${it.badge > 99 ? '99+' : it.badge}</span>` : null}</span>
+      <span class="dock-label">${it.label}</span><span class="sr">: ${it.more}</span></button>` : html`<span aria-hidden="true"></span>`);
+  return html`<div class="dock" role="group" aria-label="Что дальше">${btn(side, 'side')}${btn(main, 'main')}${btn(race, 'side')}</div>
+    <${LinkRow} items=${links} />`;
 }
 
 // What the next step is, said as an invitation of its person (a рубеж — by its name).
@@ -1288,20 +1297,6 @@ const memLeads = (st) => {
 };
 // The link past the memory to the next step.
 const skipLabel = (nx) => (nx.cp ? (nx.cp.final ? 'Сразу к итогу круга' : 'Сразу к рубежу') : isSkill(nx.c) ? 'Сразу к уроку' : 'Сразу к разговору');
-
-function MemRow({ st, go }) {
-  const all = Object.keys(st.mem).filter((id) => phrase(id));
-  if (!all.length) return null;
-  const due = dueList(st);
-  // The ornament (қошқар мүйіз) fades with the share of phrases waiting to be refreshed.
-  const fade = Math.min(1, due.length / all.length);
-  return html`<button type="button" class="mem-row" onClick=${() => go('review')}>
-    <span class="mem-ic" style=${`opacity:${(1 - 0.6 * fade).toFixed(2)}`}><${Icon} name="ornament" size=${22} /></span>
-    <span class="grow">${due.length ? `Память: ${cardsText(due)} ${agree(due, 'тускнеет', 'тускнеют')}` : `Память: ${cardsText(all)}, всё свежее`}</span>
-    ${due.length ? html`<span class="link">Освежить</span>` : null}
-    <${Icon} name="next" size=${18} stroke=${2.4} />
-  </button>`;
-}
 
 // The circle the learner looked at last stays chosen while the page is open.
 let homeLevel = null;
@@ -1331,9 +1326,7 @@ function Home({ st, go, update }) {
         <button type="button" role="tab" aria-selected=${level === l.id} class=${'level' + (level === l.id ? ' on' : '')} onClick=${() => setLevel(l.id)}>
           ${l.tab || l.title} <span>${l.id}</span></button>`)}</div>
       <${CircleMap} st=${st} go=${go} level=${level} onList=${() => setList(true)} />
-      <${NextCard} st=${st} go=${go} level=${level} setLevel=${setLevel} />
-      ${memLeads(st) && nextUp(st, level) ? null : html`<${MemRow} st=${st} go=${go} />`}
-      <${RaceRow} st=${st} go=${go} />
+      <${HomeDock} st=${st} go=${go} level=${level} setLevel=${setLevel} />
       <${SurveyRow} st=${st} update=${update} />
       <${StatsRow} st=${st} update=${update} />
       <${InstallRow} st=${st} onOpen=${install} />
@@ -3184,19 +3177,6 @@ function raceBoards(n) {
     out.push({ left, right });
   }
   return out;
-}
-
-// The mixed race on the home screen appears with the second open topic: with one, it would repeat
-// the race of that topic, which its own screen offers.
-function RaceRow({ st, go }) {
-  if (raceTopics(st).length < 2) return null;
-  const best = st.race.best.mix;
-  return html`<button type="button" class="mem-row" onClick=${() => go('race')}>
-    <span class="mem-ic race-ic"><${Icon} name="flag" size=${22} /></span>
-    <span class="grow"><span><span lang="kk">Бәйге</span> (скачки) — пары слов на время</span></span>
-    ${best ? html`<span class="muted sm">рекорд ${raceTime(best)}</span>` : null}
-    <${Icon} name="next" size=${18} stroke=${2.4} />
-  </button>`;
 }
 
 // A race alone runs against the record or, the first time, against Bota. A duel is played in turns
